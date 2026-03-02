@@ -69,7 +69,7 @@ export const createUser = (data: {
   email: string;
   role: string;
   sede: string;
-}) => api.post<UserProfile>("/users", data);
+}) => api.post<UserProfile & { resetLink?: string }>("/users", data);
 
 export const updateUser = (
   uid: string,

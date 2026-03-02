@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { getUsers, createUser, updateUser, deleteUser, resetPassword } from "@/lib/api";
+import { getUsers, createUser, updateUser, deleteUser, resetPassword, getSedes } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -11,8 +11,8 @@ import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SearchFilterBar } from "@/components/ui/SearchFilterBar";
 import { RoleEnum, RoleLabel } from "@/lib/constants";
-import type { UserProfile } from "@/types";
-import { Plus, Pencil, Trash2, KeyRound } from "lucide-react";
+import type { UserProfile, CatalogItem } from "@/types";
+import { Plus, Pencil, Trash2, KeyRound, Copy, Check } from "lucide-react";
 import toast from "react-hot-toast";
 
 const ROLE_OPTIONS = [
@@ -54,6 +54,17 @@ export default function UsuariosPage() {
 
   const [confirmDelete, setConfirmDelete] = useState<UserProfile | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  const [sedes, setSedes] = useState<CatalogItem[]>([]);
+
+  const [resetLink, setResetLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    getSedes()
+      .then((res) => setSedes(res.data))
+      .catch(() => {});
+  }, []);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -107,13 +118,38 @@ export default function UsuariosPage() {
           sede: form.sede || undefined,
           active: form.active,
         });
+        // Si se desactivó, sacarlo de la lista; si sigue activo, refrescar
+        if (!form.active) {
+          setUsers((prev) => prev.filter((u) => u.uid !== editUser.uid));
+        } else {
+          setUsers((prev) =>
+            prev.map((u) =>
+              u.uid === editUser.uid
+                ? { ...u, displayName: form.displayName, role: form.role, sede: form.sede || undefined, active: form.active }
+                : u
+            )
+          );
+        }
         toast.success("Usuario actualizado");
+        setModalOpen(false);
+        return;
       } else {
-        await createUser(form);
-        toast.success("Usuario creado correctamente");
+        const res = await createUser({
+          displayName: form.displayName,
+          email: form.email,
+          role: form.role,
+          sede: form.sede,
+        });
+        setModalOpen(false);
+        fetchUsers();
+        if (res.data.resetLink) {
+          setResetLink(res.data.resetLink);
+        } else {
+          toast.success("Usuario creado correctamente");
+        }
+        return;
       }
       setModalOpen(false);
-      fetchUsers();
     } catch {
       toast.error("Error al guardar el usuario");
     } finally {
@@ -121,14 +157,22 @@ export default function UsuariosPage() {
     }
   };
 
+  const handleCopyLink = () => {
+    if (!resetLink) return;
+    navigator.clipboard.writeText(resetLink).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
   const handleDelete = async () => {
     if (!confirmDelete) return;
     setDeleting(true);
     try {
       await deleteUser(confirmDelete.uid);
+      setUsers((prev) => prev.filter((u) => u.uid !== confirmDelete.uid));
       toast.success("Usuario eliminado");
       setConfirmDelete(null);
-      fetchUsers();
     } catch {
       toast.error("Error al eliminar el usuario");
     } finally {
@@ -289,7 +333,16 @@ export default function UsuariosPage() {
             }
             required
           />
-          {!editUser && (
+          {editUser ? (
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">
+                Email <span className="text-gray-400 font-normal">(no editable)</span>
+              </label>
+              <div className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-400 select-all cursor-default">
+                {editUser.email}
+              </div>
+            </div>
+          ) : (
             <Input
               label="Email"
               type="email"
@@ -307,11 +360,14 @@ export default function UsuariosPage() {
             options={ROLE_FORM_OPTIONS}
             required
           />
-          <Input
+          <Select
             label="Sede (opcional)"
             value={form.sede}
             onChange={(e) => setForm((p) => ({ ...p, sede: e.target.value }))}
-            placeholder="Ej: Bogotá Norte"
+            options={[
+              { value: "", label: "Sin sede" },
+              ...sedes.map((s) => ({ value: s.code ?? s.name, label: s.name })),
+            ]}
           />
           {editUser && (
             <div className="flex items-center gap-2">
@@ -332,6 +388,45 @@ export default function UsuariosPage() {
               </label>
             </div>
           )}
+        </div>
+      </Modal>
+
+      {/* Reset Link Modal (after user creation) */}
+      <Modal
+        open={!!resetLink}
+        onClose={() => setResetLink(null)}
+        title="Usuario creado — Enlace de acceso"
+        footer={
+          <Button variant="primary" onClick={() => setResetLink(null)}>
+            Cerrar
+          </Button>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600">
+            El usuario fue creado sin contraseña. Comparte este enlace para que
+            pueda establecer su propia contraseña:
+          </p>
+          <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+            <span className="flex-1 text-xs text-gray-700 break-all font-mono">
+              {resetLink}
+            </span>
+            <button
+              onClick={handleCopyLink}
+              className="shrink-0 p-1 rounded hover:bg-gray-200 transition-colors"
+              title="Copiar enlace"
+            >
+              {copied ? (
+                <Check size={15} className="text-green-600" />
+              ) : (
+                <Copy size={15} className="text-gray-500" />
+              )}
+            </button>
+          </div>
+          <p className="text-xs text-gray-400">
+            Este enlace expira en 24 horas. También puede usar "Restablecer
+            contraseña" para generar uno nuevo.
+          </p>
         </div>
       </Modal>
 

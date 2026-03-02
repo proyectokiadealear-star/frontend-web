@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   getVehicles,
-  getAnalytics,
   getStatusHistory,
   getCertification,
   getDocumentation,
@@ -20,7 +19,7 @@ import { formatDate } from "@/lib/utils";
 import { generateVehiclePDF } from "@/lib/generateVehiclePDF";
 import { VehicleStatus, VehicleStatusLabel } from "@/lib/constants";
 import type { Vehicle, Certification, Documentation, DeliveryCeremony, StatusHistoryEntry } from "@/types";
-import { FileDown, BarChart2, X } from "lucide-react";
+import { FileDown, X } from "lucide-react";
 import toast from "react-hot-toast";
 
 const STATUS_OPTIONS = [
@@ -46,10 +45,6 @@ export default function ReportesPage() {
   const [drawerCert, setDrawerCert] = useState<Certification | null>(null);
   const [drawerDoc, setDrawerDoc] = useState<Documentation | null>(null);
   const [drawerCeremony, setDrawerCeremony] = useState<DeliveryCeremony | null>(null);
-
-  // Analytics
-  const [analytics, setAnalytics] = useState<Record<string, number> | null>(null);
-  const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   const LIMIT = 20;
 
@@ -146,18 +141,6 @@ export default function ReportesPage() {
     });
   };
 
-  const loadAnalytics = async () => {
-    setAnalyticsLoading(true);
-    try {
-      const res = await getAnalytics();
-      setAnalytics(res.data);
-    } catch {
-      toast.error("Error al cargar analíticas");
-    } finally {
-      setAnalyticsLoading(false);
-    }
-  };
-
   const totalPages = Math.ceil(total / LIMIT);
 
   return (
@@ -165,34 +148,7 @@ export default function ReportesPage() {
       <PageHeader
         title="Reportes y Trazabilidad"
         subtitle="Historial completo de estados por vehículo"
-        actions={
-          <Button
-            variant="outline"
-            icon={<BarChart2 size={16} />}
-            onClick={loadAnalytics}
-            loading={analyticsLoading}
-          >
-            Ver analíticas
-          </Button>
-        }
       />
-
-      {/* Analytics summary */}
-      {analytics && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-          {Object.entries(analytics).map(([key, val]) => (
-            <div
-              key={key}
-              className="bg-white border border-gray-200 rounded-xl p-4"
-            >
-              <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">
-                {VehicleStatusLabel[key as keyof typeof VehicleStatusLabel] ?? key}
-              </p>
-              <p className="text-2xl font-bold text-gray-900">{val}</p>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Filters */}
       <SearchFilterBar

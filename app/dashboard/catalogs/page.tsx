@@ -46,6 +46,10 @@ interface TabConfig {
   updateFn: (id: string, data: Partial<CatalogItem>) => Promise<unknown>;
   deleteFn: (id: string) => Promise<unknown>;
   fields: { name: string; label: string; required?: boolean }[];
+  /** Fields shown only when editing (omit to use `fields`) */
+  editFields?: { name: string; label: string; readonlyNote?: string }[];
+  canEdit: boolean;
+  canDelete: boolean;
 }
 
 // ─── Tab Configurations ──────────────────────────────────────────────────────
@@ -61,8 +65,9 @@ const TABS: TabConfig[] = [
     deleteFn: deleteColor,
     fields: [
       { name: "name", label: "Nombre", required: true },
-      { name: "code", label: "Código de color (hex / fabricante)" },
     ],
+    canEdit: true,
+    canDelete: true,
   },
   {
     key: "modelos",
@@ -74,9 +79,9 @@ const TABS: TabConfig[] = [
     deleteFn: deleteModel,
     fields: [
       { name: "name", label: "Nombre", required: true },
-      { name: "year", label: "Año" },
-      { name: "category", label: "Categoría" },
     ],
+    canEdit: true,
+    canDelete: true,
   },
   {
     key: "concesionarios",
@@ -88,10 +93,9 @@ const TABS: TabConfig[] = [
     deleteFn: deleteConcessionaire,
     fields: [
       { name: "name", label: "Nombre", required: true },
-      { name: "city", label: "Ciudad" },
-      { name: "region", label: "Región" },
-      { name: "contactEmail", label: "Email de contacto" },
     ],
+    canEdit: true,
+    canDelete: true,
   },
   {
     key: "sedes",
@@ -103,9 +107,14 @@ const TABS: TabConfig[] = [
     deleteFn: deleteSede,
     fields: [
       { name: "name", label: "Nombre", required: true },
-      { name: "address", label: "Dirección" },
-      { name: "city", label: "Ciudad" },
+      { name: "code", label: "C\u00f3digo (ej: SURMOTOR)", required: true },
     ],
+    editFields: [
+      { name: "name", label: "Nombre" },
+      { name: "code", label: "C\u00f3digo", readonlyNote: "El c\u00f3digo no se puede cambiar (romper\u00eda asignaciones de usuarios)" },
+    ],
+    canEdit: true,
+    canDelete: true,
   },
   {
     key: "accesorios",
@@ -117,9 +126,14 @@ const TABS: TabConfig[] = [
     deleteFn: deleteAccessory,
     fields: [
       { name: "name", label: "Nombre", required: true },
-      { name: "key", label: "Clave interna (UPPER_CASE)" },
-      { name: "description", label: "Descripción" },
+      { name: "key", label: "Clave interna (ej: ALARMA)", required: true },
     ],
+    editFields: [
+      { name: "name", label: "Nombre" },
+      { name: "key", label: "Clave interna", readonlyNote: "La clave no se puede cambiar (romper\u00eda el historial de accesorios)" },
+    ],
+    canEdit: true,
+    canDelete: true,
   },
 ];
 
@@ -161,8 +175,9 @@ function CatalogTab({ config }: { config: TabConfig }) {
 
   const openEdit = (item: CatalogItem) => {
     setEditItem(item);
+    const activeFields = config.editFields ?? config.fields;
     const prefilled: Record<string, string> = {};
-    config.fields.forEach(
+    activeFields.forEach(
       (f) => (prefilled[f.name] = String((item as unknown as Record<string, unknown>)[f.name] ?? ""))
     );
     setFormData(prefilled);
@@ -170,8 +185,9 @@ function CatalogTab({ config }: { config: TabConfig }) {
   };
 
   const handleSave = async () => {
-    const missing = config.fields.find(
-      (f) => f.required && !formData[f.name]?.trim()
+    const activeFields = editItem ? (config.editFields ?? config.fields) : config.fields;
+    const missing = activeFields.find(
+      (f) => (f as { required?: boolean }).required && !formData[f.name]?.trim()
     );
     if (missing) {
       toast.error(`El campo "${missing.label}" es obligatorio`);
@@ -268,21 +284,28 @@ function CatalogTab({ config }: { config: TabConfig }) {
                     ))}
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          icon={<Pencil size={13} />}
-                          onClick={() => openEdit(item)}
-                          title="Editar"
-                        />
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          icon={<Trash2 size={13} />}
-                          onClick={() => setConfirmDelete(item)}
-                          title="Eliminar"
-                          className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                        />
+                        {config.canEdit && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            icon={<Pencil size={13} />}
+                            onClick={() => openEdit(item)}
+                            title="Editar"
+                          />
+                        )}
+                        {config.canDelete && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            icon={<Trash2 size={13} />}
+                            onClick={() => setConfirmDelete(item)}
+                            title="Eliminar"
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                          />
+                        )}
+                        {!config.canEdit && !config.canDelete && (
+                          <span className="text-xs text-gray-300">—</span>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -315,17 +338,32 @@ function CatalogTab({ config }: { config: TabConfig }) {
         }
       >
         <div className="space-y-4">
-          {config.fields.map((f) => (
-            <Input
-              key={f.name}
-              label={f.label}
-              value={formData[f.name] ?? ""}
-              onChange={(e) =>
-                setFormData((p) => ({ ...p, [f.name]: e.target.value }))
-              }
-              required={f.required}
-            />
-          ))}
+          {(editItem ? (config.editFields ?? config.fields) : config.fields).map((f) => {
+            const isReadonly = !!(f as { readonlyNote?: string }).readonlyNote;
+            return isReadonly ? (
+              <div key={f.name}>
+                <label className="block text-xs font-medium text-gray-500 mb-1">
+                  {f.label}
+                </label>
+                <div className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-400 font-mono">
+                  {formData[f.name] ?? ""}
+                </div>
+                <p className="text-xs text-amber-600 mt-1">
+                  ⚠️ {(f as { readonlyNote?: string }).readonlyNote}
+                </p>
+              </div>
+            ) : (
+              <Input
+                key={f.name}
+                label={f.label}
+                value={formData[f.name] ?? ""}
+                onChange={(e) =>
+                  setFormData((p) => ({ ...p, [f.name]: e.target.value }))
+                }
+                required={(f as { required?: boolean }).required}
+              />
+            );
+          })}
         </div>
       </Modal>
 

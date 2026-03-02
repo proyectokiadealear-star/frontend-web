@@ -220,7 +220,7 @@ export const getTechnicianPerformance = (uid: string) =>
 // ============================================================
 export const getColors = () => api.get<CatalogItem[]>("/catalogs/colors");
 export const createColor = (data: Partial<CatalogItem>) =>
-  api.post("/catalogs/colors", { ...data, name: data.name?.toUpperCase() });
+  api.post("/catalogs/colors", data);
 export const updateColor = (id: string, data: Partial<CatalogItem>) =>
   api.patch(`/catalogs/colors/${id}`, data);
 export const deleteColor = (id: string) => api.delete(`/catalogs/colors/${id}`);
@@ -234,7 +234,7 @@ export const deleteModel = (id: string) => api.delete(`/catalogs/models/${id}`);
 
 export const getConcessionaires = () => api.get<CatalogItem[]>("/catalogs/concessionaires");
 export const createConcessionaire = (data: Partial<CatalogItem>) =>
-  api.post("/catalogs/concessionaires", { ...data, name: data.name?.toUpperCase() });
+  api.post("/catalogs/concessionaires", data);
 export const updateConcessionaire = (id: string, data: Partial<CatalogItem>) =>
   api.patch(`/catalogs/concessionaires/${id}`, data);
 export const deleteConcessionaire = (id: string) =>
@@ -242,11 +242,7 @@ export const deleteConcessionaire = (id: string) =>
 
 export const getSedes = () => api.get<CatalogItem[]>("/catalogs/sedes");
 export const createSede = (data: Partial<CatalogItem>) =>
-  api.post("/catalogs/sedes", {
-    ...data,
-    name: data.name?.toUpperCase(),
-    code: (data as Record<string, string>).code?.toUpperCase(),
-  });
+  api.post("/catalogs/sedes", data);
 export const updateSede = (id: string, data: Partial<CatalogItem>) =>
   api.patch(`/catalogs/sedes/${id}`, data);
 export const deleteSede = (id: string) => api.delete(`/catalogs/sedes/${id}`);
@@ -262,10 +258,7 @@ export const markNotificationRead = (id: string) =>
 
 export const getAccessories = () => api.get<CatalogItem[]>("/catalogs/accessories");
 export const createAccessory = (data: Partial<CatalogItem>) =>
-  api.post("/catalogs/accessories", {
-    ...data,
-    key: (data as Record<string, string>).key?.toUpperCase(),
-  });
+  api.post("/catalogs/accessories", data);
 export const updateAccessory = (id: string, data: Partial<CatalogItem>) =>
   api.patch(`/catalogs/accessories/${id}`, data);
 export const deleteAccessory = (id: string) => api.delete(`/catalogs/accessories/${id}`);

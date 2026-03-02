@@ -10,7 +10,7 @@ import { Modal } from "@/components/ui/Modal";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { SearchFilterBar } from "@/components/ui/SearchFilterBar";
-import { RoleEnum, RoleLabel } from "@/lib/constants";
+import { RoleEnum, RoleLabel, type RoleEnumType } from "@/lib/constants";
 import type { UserProfile, CatalogItem } from "@/types";
 import { Plus, Pencil, Trash2, KeyRound, Copy, Check } from "lucide-react";
 import toast from "react-hot-toast";
@@ -125,7 +125,7 @@ export default function UsuariosPage() {
           setUsers((prev) =>
             prev.map((u) =>
               u.uid === editUser.uid
-                ? { ...u, displayName: form.displayName, role: form.role, sede: form.sede || undefined, active: form.active }
+                ? { ...u, displayName: form.displayName, role: form.role as RoleEnumType, sede: form.sede || "", active: form.active }
                 : u
             )
           );

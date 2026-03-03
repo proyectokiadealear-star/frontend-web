@@ -199,15 +199,23 @@ export default function DocumentacionFormPage() {
     fd.append(
       "accessories",
       JSON.stringify(
-        formData.accessories.map((a) => {
-          const item: { key: string; classification: string; notes?: string } = {
-            key: a.key.toLowerCase(), // backend enum is all lowercase (boton_encendido, aros...)
-            classification: a.classification,
-          };
-          // 'notes' solo para el accesorio 'otros'
-          if (a.key.toLowerCase() === "otros" && a.notes) item.notes = a.notes;
-          return item;
-        })
+        formData.accessories
+          // Backend validates against a static enum (14 keys). Filter out
+          // custom catalog accessories whose key isn't in that enum yet.
+          .filter((a) =>
+            Object.values(AccessoryKey)
+              .map((v) => v.toLowerCase())
+              .includes(a.key.toLowerCase())
+          )
+          .map((a) => {
+            const item: { key: string; classification: string; notes?: string } = {
+              key: a.key.toLowerCase(), // backend enum is all lowercase (boton_encendido, aros...)
+              classification: a.classification,
+            };
+            // 'notes' solo para el accesorio 'otros'
+            if (a.key.toLowerCase() === "otros" && a.notes) item.notes = a.notes;
+            return item;
+          })
       )
     );
     if (files.invoiceFile) fd.append("vehicleInvoice", files.invoiceFile);

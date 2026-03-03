@@ -22,6 +22,7 @@ import {
   AccessoryClassificationLabel,
   PaymentMethod,
   PaymentMethodLabel,
+  VehicleStatus,
   type AccessoryClassificationType,
 } from "@/lib/constants";
 import type { Vehicle, Documentation, AccessoryItem, CatalogItem } from "@/types";
@@ -171,12 +172,18 @@ export default function DocumentacionFormPage() {
     if (step !== 0) return true;
     const e: typeof errors = {};
     if (!formData.clientName.trim()) e.clientName = "Requerido";
-    if (!formData.clientId.trim()) e.clientId = "Requerido";
-    else if (!validateCedula(formData.clientId))
+    if (!formData.clientId.trim()) {
+      e.clientId = "Requerido";
+    } else if (!isEditMode && !validateCedula(formData.clientId)) {
+      // In edit mode skip strict cedula check so existing (possibly test) data doesn't block navigation
       e.clientId = "Cédula inválida. Verifica provincia (01-24), tipo (persona natural) y dígito verificador.";
-    if (!formData.clientPhone.trim()) e.clientPhone = "Requerido";
-    else if (!/^09\d{8}$/.test(formData.clientPhone))
+    }
+    if (!formData.clientPhone.trim()) {
+      e.clientPhone = "Requerido";
+    } else if (!isEditMode && !/^09\d{8}$/.test(formData.clientPhone)) {
+      // Same: don\'t block editing docs that were saved with a different format
       e.clientPhone = "Debe tener formato 09XXXXXXXX (10 dígitos, inicia con 09)";
+    }
     if (!formData.registrationType) e.registrationType = "Requerido";
     if (!formData.paymentMethod) e.paymentMethod = "Requerido";
     setErrors(e);
@@ -188,6 +195,13 @@ export default function DocumentacionFormPage() {
     setStep((s) => Math.min(s + 1, 2) as Step);
   };
 
+  const isEditMode = !!existingDoc;
+  const isPending = vehicle?.status === VehicleStatus.DOCUMENTACION_PENDIENTE;
+
+  // saveAsPending:
+  //  - CREATE: always send (true = pending, false = final)
+  //  - PATCH partial edit: omit the field entirely (backend does not change state)
+  //  - PATCH complete pending: send false (transitions DOCUMENTACION_PENDIENTE → DOCUMENTADO)
   const buildFormData = (saveAsPending: boolean) => {
     const fd = new FormData();
     fd.append("clientName", formData.clientName);
@@ -195,7 +209,11 @@ export default function DocumentacionFormPage() {
     fd.append("clientPhone", formData.clientPhone);
     fd.append("registrationType", formData.registrationType);
     fd.append("paymentMethod", formData.paymentMethod);
-    fd.append("saveAsPending", String(saveAsPending));
+    // On edit: only append saveAsPending=false to complete a pending doc.
+    // A pure partial edit must NOT send saveAsPending so the backend skips state change.
+    if (!isEditMode || !saveAsPending) {
+      fd.append("saveAsPending", String(saveAsPending));
+    }
     fd.append(
       "accessories",
       JSON.stringify(
@@ -235,12 +253,24 @@ export default function DocumentacionFormPage() {
         await createDocumentation(vehicleId!, fd);
       }
 
-      if (saveAsPending) {
-        toast("Guardado como pendiente", { icon: "⏳" });
-        router.push("/dashboard/documentacion");
+      if (isEditMode) {
+        if (!saveAsPending && isPending) {
+          // Completed a pending doc → go to stock
+          toast.success("Documentación completada correctamente");
+          router.push("/dashboard/stock");
+        } else {
+          // Pure partial edit
+          toast.success("Documentación actualizada");
+          router.push("/dashboard/documentacion");
+        }
       } else {
-        toast.success("Vehículo documentado correctamente");
-        router.push("/dashboard/stock");
+        if (saveAsPending) {
+          toast("Guardado como pendiente", { icon: "⏳" });
+          router.push("/dashboard/documentacion");
+        } else {
+          toast.success("Vehículo documentado correctamente");
+          router.push("/dashboard/stock");
+        }
       }
     } catch (err: unknown) {
       const msg =
@@ -293,7 +323,7 @@ export default function DocumentacionFormPage() {
       </div>
 
       <PageHeader
-        title="Documentar Vehículo"
+        title={isEditMode ? "Editar Documentación" : "Documentar Vehículo"}
         subtitle={`${vehicle.model} | Chasis: ${vehicle.chassis}`}
         badge={<StatusBadge status={vehicle.status} />}
       />
@@ -532,7 +562,30 @@ export default function DocumentacionFormPage() {
             <Button variant="primary" onClick={handleNext}>
               Siguiente →
             </Button>
+          ) : isEditMode ? (
+            // ── EDIT MODE ──────────────────────────────────────────
+            <>
+              <Button
+                variant="outline"
+                onClick={() => handleSave(true)}
+                loading={saving === "pending"}
+                disabled={saving !== null}
+              >
+                Guardar cambios
+              </Button>
+              {isPending && (
+                <Button
+                  variant="primary"
+                  onClick={() => handleSave(false)}
+                  loading={saving === "final"}
+                  disabled={saving !== null}
+                >
+                  Completar documentación
+                </Button>
+              )}
+            </>
           ) : (
+            // ── CREATE MODE ────────────────────────────────────────
             <>
               <Button
                 variant="outline"

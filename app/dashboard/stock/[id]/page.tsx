@@ -12,6 +12,10 @@ import {
   updateVehicle,
   updateCertification,
   getDeliveryCeremony,
+  getSedes,
+  getModels,
+  getColors,
+  getConcessionaires,
 } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -19,6 +23,7 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 import { DateInput } from "@/components/ui/DateInput";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { TraceabilityTimeline } from "@/components/vehicles/TraceabilityTimeline";
@@ -32,11 +37,21 @@ import toast from "react-hot-toast";
 
 const tabs = ["Ingreso / Certificación", "Documentación", "Ceremonia de Entrega", "Trazabilidad"];
 
+const RimsStatusLabel: Record<string, string> = {
+  VIENE: "Vienen",
+  RAYADOS: "Rayados",
+  NO_VINIERON: "No vinieron",
+};
+
 export default function VehicleDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { user } = useAuth();
   const isJefe = user?.role === RoleEnum.JEFE_TALLER || user?.role === RoleEnum.SOPORTE;
+  const canEditDoc =
+    user?.role === RoleEnum.DOCUMENTACION ||
+    user?.role === RoleEnum.JEFE_TALLER ||
+    user?.role === RoleEnum.SOPORTE;
 
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [cert, setCert] = useState<Certification | null>(null);
@@ -51,10 +66,15 @@ export default function VehicleDetailPage() {
   // Edit state
   const [editOpen, setEditOpen] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
+  const [sedesOptions, setSedesOptions] = useState<{ value: string; label: string }[]>([]);
+  const [modelsOptions, setModelsOptions] = useState<{ value: string; label: string }[]>([]);
+  const [colorsOptions, setColorsOptions] = useState<{ value: string; label: string }[]>([]);
+  const [concessionairesOptions, setConcessionairesOptions] = useState<{ value: string; label: string }[]>([]);
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({});
   const [editVehicle, setEditVehicle] = useState({ model: "", year: "", color: "", sede: "", originConcessionaire: "", receptionDate: "" });
-  const [editCert, setEditCert] = useState({ mileage: "", radio: "", seatType: "", hasImprints: false, notes: "" });
+  const [editCert, setEditCert] = useState({ mileage: "", radio: "", seatType: "", rimsStatus: "", hasImprints: false, notes: "" });
 
-  const openEdit = () => {
+  const openEdit = async () => {
     if (!vehicle) return;
     const toDateStr = (v: unknown): string => {
       if (!v) return "";
@@ -77,31 +97,69 @@ export default function VehicleDetailPage() {
       mileage: cert ? String(cert.mileage) : "",
       radio: cert?.radio ?? "",
       seatType: cert?.seatType ?? "",
+      rimsStatus: cert?.rims?.status ?? "",
       hasImprints: cert?.hasImprints ?? false,
       notes: cert?.notes ?? "",
     });
+    // Clear previous validation errors
+    setEditErrors({});
+    // Load catalogs in parallel if not already loaded
+    try {
+      const [sedesRes, modelsRes, colorsRes, concessRes] = await Promise.allSettled([
+        sedesOptions.length === 0 ? getSedes() : Promise.resolve(null),
+        modelsOptions.length === 0 ? getModels() : Promise.resolve(null),
+        colorsOptions.length === 0 ? getColors() : Promise.resolve(null),
+        concessionairesOptions.length === 0 ? getConcessionaires() : Promise.resolve(null),
+      ]);
+      if (sedesRes.status === "fulfilled" && sedesRes.value)
+        setSedesOptions((sedesRes.value.data ?? []).map((s) => ({ value: s.code ?? s.name, label: s.name })));
+      if (modelsRes.status === "fulfilled" && modelsRes.value)
+        setModelsOptions((modelsRes.value.data ?? []).map((m) => ({ value: m.name, label: m.name })));
+      if (colorsRes.status === "fulfilled" && colorsRes.value)
+        setColorsOptions((colorsRes.value.data ?? []).map((c) => ({ value: c.name, label: c.name })));
+      if (concessRes.status === "fulfilled" && concessRes.value)
+        setConcessionairesOptions((concessRes.value.data ?? []).map((c) => ({ value: c.name, label: c.name })));
+    } catch {
+      // fallback: inputs remain as free text
+    }
     setEditOpen(true);
   };
 
   const handleEditSave = async () => {
     if (!id) return;
+    // Visual validation
+    const errs: Record<string, string> = {};
+    if (!editVehicle.model.trim()) errs.model = "El modelo es requerido";
+    if (!editVehicle.year || Number(editVehicle.year) === 0) errs.year = "El año es requerido";
+    if (!editVehicle.color.trim()) errs.color = "El color es requerido";
+    if (!editVehicle.sede) errs.sede = "La sede es requerida";
+    if (!editVehicle.originConcessionaire.trim()) errs.originConcessionaire = "El concesionario origen es requerido";
+    if (Object.keys(errs).length > 0) { setEditErrors(errs); return; }
+    setEditErrors({});
     setEditSaving(true);
     try {
-      const vehiclePayload: Partial<Vehicle> = {
-        model: editVehicle.model,
+      const vehiclePayload: Record<string, unknown> = {
+        // Backend stores MAYÚSCULAS — uppercase before sending
+        model: editVehicle.model.trim().toUpperCase(),
         year: Number(editVehicle.year),
-        color: editVehicle.color,
+        color: editVehicle.color.trim().toUpperCase(),
         sede: editVehicle.sede,
-        originConcessionaire: editVehicle.originConcessionaire,
-        receptionDate: editVehicle.receptionDate,
+        originConcessionaire: editVehicle.originConcessionaire.trim().toUpperCase(),
+        // receptionDate intentionally excluded — not in UpdateVehicleDto
       };
-      const promises: Promise<unknown>[] = [updateVehicle(id, vehiclePayload)];
+      // Remove empty strings to avoid overwriting with blank
+      Object.keys(vehiclePayload).forEach((k) => {
+        if (vehiclePayload[k] === "" || vehiclePayload[k] === 0 || vehiclePayload[k] === undefined)
+          delete vehiclePayload[k];
+      });
+      const promises: Promise<unknown>[] = [updateVehicle(id, vehiclePayload as Partial<Vehicle>)];
       if (cert) {
         promises.push(
           updateCertification(id, {
             mileage: Number(editCert.mileage),
             radio: editCert.radio,
             seatType: editCert.seatType,
+            rims: { status: editCert.rimsStatus, photoUrl: cert?.rims?.photoUrl },
             hasImprints: editCert.hasImprints,
             notes: editCert.notes,
           })
@@ -297,6 +355,19 @@ export default function VehicleDetailPage() {
               <Field label="Kilometraje" value={`${cert.mileage} km`} />
               <Field label="Radio" value={cert.radio} />
               <Field label="Tipo de asiento" value={cert.seatType} />
+              <Field label="Estado de aros" value={RimsStatusLabel[cert.rims?.status ?? ""] ?? cert.rims?.status ?? "—"} />
+              {cert.rims?.photoUrl && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Foto de aros</p>
+                  <a href={cert.rims.photoUrl} target="_blank" rel="noreferrer">
+                    <img
+                      src={cert.rims.photoUrl}
+                      alt="Foto de aros"
+                      className="h-28 w-full object-cover rounded-lg border border-gray-200 hover:opacity-90 transition-opacity cursor-pointer"
+                    />
+                  </a>
+                </div>
+              )}
               <Field label="Improntas" value={cert.hasImprints ? "Sí" : "No"} />
               {cert.notes && <Field label="Notas" value={cert.notes} />}
               <Field label="Certificado el" value={formatDateTime(cert.certifiedAt)} />
@@ -315,6 +386,18 @@ export default function VehicleDetailPage() {
             </div>
           ) : (
             <div className="space-y-6">
+              {canEditDoc && (
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    icon={<Pencil size={13} />}
+                    onClick={() => router.push(`/dashboard/documentacion/${id}`)}
+                  >
+                    Editar documentación
+                  </Button>
+                </div>
+              )}
               <FieldSection title="Datos del Cliente">
                 <Field label="Nombre" value={doc.clientName} />
                 <Field label="Cédula" value={doc.clientId} />
@@ -352,9 +435,11 @@ export default function VehicleDetailPage() {
                 </div>
               </div>
 
-              {Array.isArray(doc.accessories) && doc.accessories.length > 0 && (
-                <FieldSection title="Clasificación de Accesorios">
+              <FieldSection title="Clasificación de Accesorios">
                   <div className="col-span-2 overflow-x-auto">
+                    {!Array.isArray(doc.accessories) || doc.accessories.length === 0 ? (
+                      <p className="text-sm text-gray-400 py-2">No hay accesorios registrados.</p>
+                    ) : (
                     <table className="min-w-full text-sm">
                       <thead>
                         <tr className="border-b border-gray-200">
@@ -367,10 +452,13 @@ export default function VehicleDetailPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {(Array.isArray(doc.accessories) ? doc.accessories : []).map((acc) => (
+                        {doc.accessories.map((acc) => (
                           <tr key={acc.key} className="border-b border-gray-100">
                             <td className="py-2 pr-4 text-gray-700">
-                              {AccessoryLabel[acc.key] ?? acc.key}
+                              {/* Try exact key, then uppercase (for lowercase seed keys like "aros") */}
+                              {AccessoryLabel[acc.key as keyof typeof AccessoryLabel] ??
+                                AccessoryLabel[acc.key.toUpperCase() as keyof typeof AccessoryLabel] ??
+                                acc.key.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
                             </td>
                             <td className="py-2 text-gray-600">
                               {AccessoryClassificationLabel[acc.classification] ??
@@ -380,9 +468,9 @@ export default function VehicleDetailPage() {
                         ))}
                       </tbody>
                     </table>
+                    )}
                   </div>
                 </FieldSection>
-              )}
             </div>
           )}
         </div>
@@ -481,36 +569,103 @@ export default function VehicleDetailPage() {
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Datos del vehículo</p>
             <div className="space-y-3">
-              <Input
-                label="Modelo"
-                value={editVehicle.model}
-                onChange={(e) => setEditVehicle((p) => ({ ...p, model: e.target.value }))}
-              />
+              {/* Modelo */}
+              {modelsOptions.length > 0 ? (
+                <Select
+                  label="Modelo"
+                  required
+                  placeholder="Seleccionar modelo..."
+                  value={editVehicle.model}
+                  options={modelsOptions}
+                  error={editErrors.model}
+                  onChange={(e) => setEditVehicle((p) => ({ ...p, model: e.target.value }))}
+                />
+              ) : (
+                <Input
+                  label="Modelo"
+                  required
+                  placeholder="Ej: SPORTAGE"
+                  value={editVehicle.model}
+                  error={editErrors.model}
+                  onChange={(e) => setEditVehicle((p) => ({ ...p, model: e.target.value }))}
+                />
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <Input
                   label="Año"
                   type="number"
+                  required
+                  placeholder="Ej: 2024"
                   value={editVehicle.year}
+                  error={editErrors.year}
                   onChange={(e) => setEditVehicle((p) => ({ ...p, year: e.target.value }))}
                 />
-                <Input
-                  label="Color"
-                  value={editVehicle.color}
-                  onChange={(e) => setEditVehicle((p) => ({ ...p, color: e.target.value }))}
-                />
+                {/* Color */}
+                {colorsOptions.length > 0 ? (
+                  <Select
+                    label="Color"
+                    required
+                    placeholder="Seleccionar color..."
+                    value={editVehicle.color}
+                    options={colorsOptions}
+                    error={editErrors.color}
+                    onChange={(e) => setEditVehicle((p) => ({ ...p, color: e.target.value }))}
+                  />
+                ) : (
+                  <Input
+                    label="Color"
+                    required
+                    placeholder="Ej: BLANCO"
+                    value={editVehicle.color}
+                    error={editErrors.color}
+                    onChange={(e) => setEditVehicle((p) => ({ ...p, color: e.target.value }))}
+                  />
+                )}
               </div>
-              <Input
-                label="Sede"
-                value={editVehicle.sede}
-                onChange={(e) => setEditVehicle((p) => ({ ...p, sede: e.target.value }))}
-              />
-              <Input
-                label="Concesionario origen"
-                value={editVehicle.originConcessionaire}
-                onChange={(e) => setEditVehicle((p) => ({ ...p, originConcessionaire: e.target.value }))}
-              />
+              {/* Concesionario origen */}
+              {concessionairesOptions.length > 0 ? (
+                <Select
+                  label="Concesionario origen"
+                  required
+                  placeholder="Seleccionar concesionario..."
+                  value={editVehicle.originConcessionaire}
+                  options={concessionairesOptions}
+                  error={editErrors.originConcessionaire}
+                  onChange={(e) => setEditVehicle((p) => ({ ...p, originConcessionaire: e.target.value }))}
+                />
+              ) : (
+                <Input
+                  label="Concesionario origen"
+                  required
+                  placeholder="Ej: KIA NORTE"
+                  value={editVehicle.originConcessionaire}
+                  error={editErrors.originConcessionaire}
+                  onChange={(e) => setEditVehicle((p) => ({ ...p, originConcessionaire: e.target.value }))}
+                />
+              )}
+              {/* Sede: select from catalog to avoid invalid enum values */}
+              {sedesOptions.length > 0 ? (
+                <Select
+                  label="Sede"
+                  required
+                  placeholder="Seleccionar sede..."
+                  value={editVehicle.sede}
+                  options={sedesOptions}
+                  error={editErrors.sede}
+                  onChange={(e) => setEditVehicle((p) => ({ ...p, sede: e.target.value }))}
+                />
+              ) : (
+                <Input
+                  label="Sede"
+                  required
+                  placeholder="Ej: BOGOTA"
+                  value={editVehicle.sede}
+                  error={editErrors.sede}
+                  onChange={(e) => setEditVehicle((p) => ({ ...p, sede: e.target.value }))}
+                />
+              )}
               <DateInput
-                label="Fecha de recepción"
+                label="Fecha de recepción (solo visual)"
                 value={editVehicle.receptionDate}
                 onChange={(v) => setEditVehicle((p) => ({ ...p, receptionDate: v }))}
               />
@@ -525,20 +680,48 @@ export default function VehicleDetailPage() {
                   <Input
                     label="Kilometraje"
                     type="number"
+                    placeholder="Ej: 5"
                     value={editCert.mileage}
                     onChange={(e) => setEditCert((p) => ({ ...p, mileage: e.target.value }))}
                   />
                   <Input
                     label="Radio"
+                    placeholder="Ej: INSTALADO"
                     value={editCert.radio}
                     onChange={(e) => setEditCert((p) => ({ ...p, radio: e.target.value }))}
                   />
                 </div>
-                <Input
-                  label="Tipo de asiento"
-                  value={editCert.seatType}
-                  onChange={(e) => setEditCert((p) => ({ ...p, seatType: e.target.value }))}
-                />
+                <div className="grid grid-cols-2 gap-3">
+                  <Input
+                    label="Tipo de asiento"
+                    placeholder="Ej: CUERO"
+                    value={editCert.seatType}
+                    onChange={(e) => setEditCert((p) => ({ ...p, seatType: e.target.value }))}
+                  />
+                  <Select
+                    label="Estado de aros"
+                    placeholder="Seleccionar..."
+                    value={editCert.rimsStatus}
+                    options={[
+                      { value: "VIENE", label: "Vienen" },
+                      { value: "RAYADOS", label: "Rayados" },
+                      { value: "NO_VINIERON", label: "No vinieron" },
+                    ]}
+                    onChange={(e) => setEditCert((p) => ({ ...p, rimsStatus: e.target.value }))}
+                  />
+                </div>
+                {cert.rims?.photoUrl && (
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Foto de aros actual</p>
+                    <a href={cert.rims.photoUrl} target="_blank" rel="noreferrer">
+                      <img
+                        src={cert.rims.photoUrl}
+                        alt="Foto de aros"
+                        className="h-24 w-full object-cover rounded-lg border border-gray-200 hover:opacity-90 transition-opacity cursor-pointer"
+                      />
+                    </a>
+                  </div>
+                )}
                 <div className="flex items-center gap-2">
                   <input
                     id="hasImprints"

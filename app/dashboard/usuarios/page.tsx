@@ -69,7 +69,7 @@ export default function UsuariosPage() {
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await getUsers(roleFilter ? { role: roleFilter } : {});
+      const res = await getUsers({ active: true, ...(roleFilter ? { role: roleFilter } : {}) });
       setUsers(res.data);
     } catch {
       toast.error("Error al cargar usuarios");

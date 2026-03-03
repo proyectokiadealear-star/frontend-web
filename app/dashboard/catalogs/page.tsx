@@ -196,7 +196,15 @@ function CatalogTab({ config }: { config: TabConfig }) {
     setSaving(true);
     try {
       if (editItem) {
-        await config.updateFn(editItem.id, formData);
+        // Only send editable fields (exclude readonlyNote fields like `key`)
+        const editableFields = (config.editFields ?? config.fields).filter(
+          (f) => !(f as { readonlyNote?: string }).readonlyNote
+        );
+        const updatePayload: Record<string, string> = {};
+        editableFields.forEach((f) => {
+          if (formData[f.name] !== undefined) updatePayload[f.name] = formData[f.name];
+        });
+        await config.updateFn(editItem.id, updatePayload);
         toast.success(`${config.singularLabel} actualizado`);
       } else {
         await config.createFn(formData);

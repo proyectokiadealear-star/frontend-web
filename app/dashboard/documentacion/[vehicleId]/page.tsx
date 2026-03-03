@@ -201,11 +201,11 @@ export default function DocumentacionFormPage() {
       JSON.stringify(
         formData.accessories.map((a) => {
           const item: { key: string; classification: string; notes?: string } = {
-            key: a.key, // send exact key as stored in catalog (matches DB)
+            key: a.key.toLowerCase(), // backend enum is all lowercase (boton_encendido, aros...)
             classification: a.classification,
           };
           // 'notes' solo para el accesorio 'otros'
-          if (a.key.toUpperCase() === "OTROS" && a.notes) item.notes = a.notes;
+          if (a.key.toLowerCase() === "otros" && a.notes) item.notes = a.notes;
           return item;
         })
       )

@@ -47,7 +47,7 @@ const PAYMENT_OPTIONS = Object.entries(PaymentMethodLabel).map(([v, l]) => ({
 
 // Fallback si el catálogo no tiene items con key
 const ACCESSORY_FALLBACK: CatalogItem[] = Object.entries(AccessoryLabel).map(
-  ([k, name]) => ({ id: k, name, key: k.toLowerCase() })
+  ([k, name]) => ({ id: k, name, key: k }) // k ya es MAYÚSCULAS ("ALARMA", etc.)
 );
 
 interface FormData {
@@ -126,12 +126,12 @@ export default function DocumentacionFormPage() {
 
       const buildFromCatalog = (existingAcc?: AccessoryItem[]) =>
         source.map((item) => {
-          const keyLow = item.key!.toLowerCase();
+          const catalogKey = item.key!; // exact key as stored in DB (e.g. "aros" or "CUBRE_LLUVIAS")
           const existing = existingAcc?.find(
-            (a) => a.key.toLowerCase() === keyLow
+            (a) => a.key.toUpperCase() === catalogKey.toUpperCase() // case-insensitive match
           );
           return {
-            key: keyLow as AccessoryItem["key"],
+            key: catalogKey as AccessoryItem["key"], // preserve exact DB key
             name: item.name,
             classification:
               (existing?.classification as AccessoryClassificationType) ??
@@ -201,11 +201,11 @@ export default function DocumentacionFormPage() {
       JSON.stringify(
         formData.accessories.map((a) => {
           const item: { key: string; classification: string; notes?: string } = {
-            key: a.key.toLowerCase(),
+            key: a.key, // send exact key as stored in catalog (matches DB)
             classification: a.classification,
           };
           // 'notes' solo para el accesorio 'otros'
-          if (a.key.toLowerCase() === "otros" && a.notes) item.notes = a.notes;
+          if (a.key.toUpperCase() === "OTROS" && a.notes) item.notes = a.notes;
           return item;
         })
       )

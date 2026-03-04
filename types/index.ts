@@ -46,6 +46,11 @@ export interface Vehicle {
   deliveredBy?: string;
   createdAt: DateField;
   updatedAt: DateField;
+  // Fields pre-populated from Excel import
+  clientName?: string;
+  clientId?: string;
+  clientPhone?: string;
+  paymentMethod?: string;
 }
 
 export interface StatusHistoryEntry {

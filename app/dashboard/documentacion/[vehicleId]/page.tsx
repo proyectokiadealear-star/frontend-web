@@ -152,9 +152,16 @@ export default function DocumentacionFormPage() {
           accessories: buildFromCatalog(d.accessories),
         });
       } else {
+        // Pre-fill client fields from vehicle data (populated by Excel import).
+        // All fields remain editable — this is just a convenience pre-fill.
+        const v = vRes.data;
         setFormData((prev) => ({
           ...prev,
-          accessories: buildFromCatalog(),
+          clientName:    v.clientName    ?? prev.clientName,
+          clientId:      v.clientId      ?? prev.clientId,
+          clientPhone:   v.clientPhone   ?? prev.clientPhone,
+          paymentMethod: v.paymentMethod ?? prev.paymentMethod,
+          accessories:   buildFromCatalog(),
         }));
       }
     } catch {

@@ -8,7 +8,8 @@ interface TraceabilityTimelineProps {
 }
 
 const STATUS_DOT: Partial<Record<VehicleStatusType, string>> = {
-  RECEPCIONADO: "bg-gray-400",
+  POR_ARRIBAR: "bg-gray-400",
+  ENVIADO_A_MATRICULAR: "bg-indigo-400",
   CERTIFICADO_STOCK: "bg-blue-400",
   DOCUMENTACION_PENDIENTE: "bg-amber-400",
   DOCUMENTADO: "bg-violet-400",
@@ -24,7 +25,8 @@ const STATUS_DOT: Partial<Record<VehicleStatusType, string>> = {
 };
 
 const STATUS_BORDER: Partial<Record<VehicleStatusType, string>> = {
-  RECEPCIONADO: "border-l-gray-300",
+  POR_ARRIBAR: "border-l-gray-300",
+  ENVIADO_A_MATRICULAR: "border-l-indigo-400",
   CERTIFICADO_STOCK: "border-l-blue-400",
   DOCUMENTACION_PENDIENTE: "border-l-amber-400",
   DOCUMENTADO: "border-l-violet-400",

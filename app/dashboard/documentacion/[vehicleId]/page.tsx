@@ -60,25 +60,55 @@ interface FormData {
   accessories: AccessoryItem[];
 }
 
-// ── Validación cédula ecuatoriana (10 dígitos) o RUC persona natural (13 dígitos) ──
+// ── Validación cédula ecuatoriana (10 dígitos) o RUC (13 dígitos) ──
 function validateCedula(value: string): boolean {
   if (!/^\d{10}(\d{3})?$/.test(value)) return false;
-  // Si es RUC (13 dígitos), los últimos 3 deben ser "001"
-  if (value.length === 13 && value.slice(10) !== "001") return false;
-  const cedula = value.substring(0, 10);
-  const province = parseInt(cedula.substring(0, 2), 10);
+  const isRuc = value.length === 13;
+  const province = parseInt(value.substring(0, 2), 10);
   if (province < 1 || (province > 24 && province !== 30)) return false;
-  const thirdDigit = parseInt(cedula[2], 10);
-  if (thirdDigit >= 6) return false; // solo persona natural
-  const coefficients = [2, 1, 2, 1, 2, 1, 2, 1, 2];
-  let sum = 0;
-  for (let i = 0; i < 9; i++) {
-    let val = parseInt(cedula[i], 10) * coefficients[i];
-    if (val >= 10) val -= 9;
-    sum += val;
+  const thirdDigit = parseInt(value[2], 10);
+
+  // Persona natural (tercer dígito 0-5)
+  if (thirdDigit < 6) {
+    if (isRuc && value.slice(10) !== "001") return false;
+    const coefficients = [2, 1, 2, 1, 2, 1, 2, 1, 2];
+    let sum = 0;
+    for (let i = 0; i < 9; i++) {
+      let val = parseInt(value[i], 10) * coefficients[i];
+      if (val >= 10) val -= 9;
+      sum += val;
+    }
+    const check = (10 - (sum % 10)) % 10;
+    return check === parseInt(value[9], 10);
   }
-  const checkDigit = (10 - (sum % 10)) % 10;
-  return checkDigit === parseInt(cedula[9], 10);
+
+  // Sociedad pública (tercer dígito 6) — módulo 11 con 9 dígitos
+  if (thirdDigit === 6) {
+    if (!isRuc || value.slice(9) !== "0001") return false;
+    const coefficients = [3, 2, 7, 6, 5, 4, 3, 2];
+    let sum = 0;
+    for (let i = 0; i < 8; i++) {
+      sum += parseInt(value[i], 10) * coefficients[i];
+    }
+    const remainder = sum % 11;
+    const check = remainder === 0 ? 0 : 11 - remainder;
+    return check === parseInt(value[8], 10);
+  }
+
+  // Sociedad privada (tercer dígito 9) — módulo 11 con 10 dígitos
+  if (thirdDigit === 9) {
+    if (!isRuc || value.slice(10) !== "001") return false;
+    const coefficients = [4, 3, 2, 7, 6, 5, 4, 3, 2];
+    let sum = 0;
+    for (let i = 0; i < 9; i++) {
+      sum += parseInt(value[i], 10) * coefficients[i];
+    }
+    const remainder = sum % 11;
+    const check = remainder === 0 ? 0 : 11 - remainder;
+    return check === parseInt(value[9], 10);
+  }
+
+  return false; // tercer dígito 7 u 8 no válido
 }
 
 export default function DocumentacionFormPage() {
@@ -186,7 +216,7 @@ export default function DocumentacionFormPage() {
       e.clientId = "Requerido";
     } else if (!isEditMode && !validateCedula(formData.clientId)) {
       // In edit mode skip strict cedula check so existing (possibly test) data doesn't block navigation
-      e.clientId = "Cédula (10 dígitos) o RUC (13 dígitos) inválido. Verifica provincia (01-24), tipo (persona natural) y dígito verificador.";
+      e.clientId = "Cédula (10 dígitos) o RUC (13 dígitos) inválido. Verifica provincia (01-24), tipo y dígito verificador.";
     }
     if (!formData.clientPhone.trim()) {
       e.clientPhone = "Requerido";
@@ -301,6 +331,15 @@ export default function DocumentacionFormPage() {
     }));
   };
 
+  const updateAccessoryNotes = (key: string, notes: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      accessories: prev.accessories.map((a) =>
+        a.key === key ? { ...a, notes } : a
+      ),
+    }));
+  };
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -367,10 +406,10 @@ export default function DocumentacionFormPage() {
             </h3>
             <Input
               label="Nombre completo"
-              placeholder="Juan Pérez García"
+              placeholder="JUAN PÉREZ GARCÍA"
               value={formData.clientName}
               onChange={(e) =>
-                setFormData((p) => ({ ...p, clientName: e.target.value }))
+                setFormData((p) => ({ ...p, clientName: e.target.value.toUpperCase() }))
               }
               error={errors.clientName}
               required
@@ -457,6 +496,7 @@ export default function DocumentacionFormPage() {
                 <p className="text-xs text-red-500">{errors.paymentMethod}</p>
               )}
             </div>
+
           </div>
         )}
 
@@ -517,31 +557,44 @@ export default function DocumentacionFormPage() {
                 return (
                 <div
                   key={acc.key}
-                  className="grid grid-cols-[1fr_auto] items-center gap-4 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
                 >
-                  <span className="text-sm font-medium text-gray-800">
-                    {displayName}
-                  </span>
-                  <div className="flex gap-1">
-                    {CLASSIFICATION_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => updateAccessory(acc.key, opt.value as AccessoryClassificationType)}
-                        className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors cursor-pointer whitespace-nowrap ${
-                          acc.classification === opt.value
-                            ? opt.value === AccessoryClassification.VENDIDO
-                              ? "bg-gray-900 text-white border-gray-900"
-                              : opt.value === AccessoryClassification.OBSEQUIADO
-                              ? "bg-gray-700 text-white border-gray-700"
-                              : "bg-gray-100 text-gray-700 border-gray-300"
-                            : "bg-white text-gray-400 border-gray-200 hover:border-gray-400 hover:text-gray-700"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
+                  <div className="grid grid-cols-[1fr_auto] items-center gap-4">
+                    <span className="text-sm font-medium text-gray-800">
+                      {displayName}
+                    </span>
+                    <div className="flex gap-1">
+                      {CLASSIFICATION_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => updateAccessory(acc.key, opt.value as AccessoryClassificationType)}
+                          className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors cursor-pointer whitespace-nowrap ${
+                            acc.classification === opt.value
+                              ? opt.value === AccessoryClassification.VENDIDO
+                                ? "bg-gray-900 text-white border-gray-900"
+                                : opt.value === AccessoryClassification.OBSEQUIADO
+                                ? "bg-gray-700 text-white border-gray-700"
+                                : "bg-gray-100 text-gray-700 border-gray-300"
+                              : "bg-white text-gray-400 border-gray-200 hover:border-gray-400 hover:text-gray-700"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
+                  {acc.key.toLowerCase() === "otros" && acc.classification !== AccessoryClassification.NO_APLICA && (
+                    <div className="mt-2 ml-0">
+                      <input
+                        type="text"
+                        placeholder="Detalle del accesorio (ej: Pantalla Android 10″)"
+                        value={acc.notes || ""}
+                        onChange={(e) => updateAccessoryNotes(acc.key, e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                      />
+                    </div>
+                  )}
                 </div>
                 );
               })}

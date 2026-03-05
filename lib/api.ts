@@ -13,6 +13,7 @@ import type {
   CatalogItem,
   UserProfile,
   Notification,
+  SalePotential,
 } from "@/types";
 
 // ============================================================
@@ -98,6 +99,25 @@ export const deleteVehicle = (id: string) => api.delete(`/vehicles/${id}`);
 export const getStatusHistory = (vehicleId: string) =>
   api.get<StatusHistoryEntry[]>(`/vehicles/${vehicleId}/status-history`);
 
+export const createVehicle = (data: {
+  chassis: string;
+  model: string;
+  year: number;
+  color: string;
+}) => api.post<Vehicle>("/vehicles", data);
+
+export const sendToRegistration = (vehicleId: string, registrationSentDate: string) =>
+  api.patch(`/documentation/${vehicleId}/send-to-registration`, { registrationSentDate });
+
+export const receiveRegistration = (vehicleId: string, registrationReceivedDate: string) =>
+  api.patch(`/documentation/${vehicleId}/receive-registration`, { registrationReceivedDate });
+
+export const getSalePotential = (vehicleId: string) =>
+  api.get<SalePotential>(`/vehicles/${vehicleId}/sale-potential`);
+
+export const getSalePotentialBatch = (vehicleIds: string[]) =>
+  api.post<SalePotential[]>("/vehicles/sale-potential-batch", { vehicleIds });
+
 export const getVehicleStatsBySede = () =>
   api.get("/vehicles/stats/by-sede");
 
@@ -136,6 +156,9 @@ export const transferVehicle = (vehicleId: string, data: FormData) =>
   api.patch(`/documentation/${vehicleId}/transfer`, data, {
     headers: { "Content-Type": "multipart/form-data" },
   });
+
+export const deleteDocumentation = (vehicleId: string) =>
+  api.delete(`/documentation/${vehicleId}`);
 
 export const deleteDocumentFile = (vehicleId: string, fileType: string) =>
   api.delete(`/documentation/${vehicleId}/files/${fileType}`);

@@ -54,6 +54,12 @@ export function JefeDashboard() {
 
   const kpis = [
     {
+      label: "Por Arribar",
+      value: stats?.byStatus?.[VehicleStatus.POR_ARRIBAR] ?? "—",
+      icon: <FileText size={18} />,
+      color: "default" as const,
+    },
+    {
       label: "En Instalación",
       value: stats?.byStatus?.[VehicleStatus.EN_INSTALACION] ?? "—",
       icon: <Clock size={18} />,
@@ -70,12 +76,6 @@ export function JefeDashboard() {
       value: todayDeliveries.length,
       icon: <Calendar size={18} />,
       color: "blue" as const,
-    },
-    {
-      label: "Pendiente documentar",
-      value: stats?.byStatus?.[VehicleStatus.CERTIFICADO_STOCK] ?? "—",
-      icon: <FileText size={18} />,
-      color: "default" as const,
     },
   ];
 

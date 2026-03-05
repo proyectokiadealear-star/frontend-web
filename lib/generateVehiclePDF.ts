@@ -88,7 +88,8 @@ export function generateVehiclePDF({
 
   // ── Status color map (print-safe: avoid bg-color on print) ─
   const statusColors: Record<string, string> = {
-    RECEPCIONADO: "#64748B",
+    POR_ARRIBAR: "#64748B",
+    ENVIADO_A_MATRICULAR: "#4F46E5",
     CERTIFICADO_STOCK: "#2563EB",
     DOCUMENTACION_PENDIENTE: "#D97706",
     DOCUMENTADO: "#7C3AED",
@@ -113,8 +114,10 @@ export function generateVehiclePDF({
       ${row("Color", vehicle.color)}
       ${row("Chasis / VIN", vehicle.chassis)}
       ${row("Sede", vehicle.sede)}
-      ${row("Concesionario origen", vehicle.originConcessionaire)}
-      ${row("Fecha de recepción", fmtDate(vehicle.receptionDate))}
+      ${vehicle.originConcessionaire ? row("Concesionario origen", vehicle.originConcessionaire) : ""}
+      ${vehicle.registeredDate ? row("Fecha registro contable", fmtDate(vehicle.registeredDate)) : ""}
+      ${vehicle.registrationSentDate ? row("Fecha envío a matricular", fmtDate(vehicle.registrationSentDate)) : ""}
+      ${vehicle.receptionDate ? row("Fecha de recepción", fmtDate(vehicle.receptionDate)) : ""}
       ${row("Estado actual", statusLabel)}
     `)}`;
 

@@ -3,10 +3,11 @@
 // ============================================================
 
 export const VehicleStatus = {
-  RECEPCIONADO: "RECEPCIONADO",
-  CERTIFICADO_STOCK: "CERTIFICADO_STOCK",
+  POR_ARRIBAR: "POR_ARRIBAR",
+  ENVIADO_A_MATRICULAR: "ENVIADO_A_MATRICULAR",
   DOCUMENTACION_PENDIENTE: "DOCUMENTACION_PENDIENTE",
   DOCUMENTADO: "DOCUMENTADO",
+  CERTIFICADO_STOCK: "CERTIFICADO_STOCK",
   ORDEN_GENERADA: "ORDEN_GENERADA",
   ASIGNADO: "ASIGNADO",
   EN_INSTALACION: "EN_INSTALACION",
@@ -21,10 +22,11 @@ export const VehicleStatus = {
 export type VehicleStatusType = (typeof VehicleStatus)[keyof typeof VehicleStatus];
 
 export const VehicleStatusLabel: Record<VehicleStatusType, string> = {
-  RECEPCIONADO: "Recepcionado",
-  CERTIFICADO_STOCK: "Certificado en Stock",
+  POR_ARRIBAR: "Por Arribar",
+  ENVIADO_A_MATRICULAR: "Enviado a Matricular",
   DOCUMENTACION_PENDIENTE: "Doc. Pendiente",
   DOCUMENTADO: "Documentado",
+  CERTIFICADO_STOCK: "Certificado en Stock",
   ORDEN_GENERADA: "OT Generada",
   ASIGNADO: "Asignado a Técnico",
   EN_INSTALACION: "En Instalación",
@@ -37,10 +39,11 @@ export const VehicleStatusLabel: Record<VehicleStatusType, string> = {
 };
 
 export const VehicleStatusColor: Record<VehicleStatusType, string> = {
-  RECEPCIONADO: "bg-gray-100 text-gray-700",
-  CERTIFICADO_STOCK: "bg-blue-50 text-blue-700",
+  POR_ARRIBAR: "bg-gray-100 text-gray-700",
+  ENVIADO_A_MATRICULAR: "bg-indigo-50 text-indigo-700",
   DOCUMENTACION_PENDIENTE: "bg-amber-50 text-amber-700",
   DOCUMENTADO: "bg-violet-50 text-violet-700",
+  CERTIFICADO_STOCK: "bg-blue-50 text-blue-700",
   ORDEN_GENERADA: "bg-sky-50 text-sky-700",
   ASIGNADO: "bg-sky-100 text-sky-800",
   EN_INSTALACION: "bg-orange-50 text-orange-700",

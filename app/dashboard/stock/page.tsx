@@ -133,7 +133,8 @@ export default function StockPage() {
                 <div className="flex items-center justify-between gap-1">
                   <StatusBadge status={v.status} />
                   <div className="flex gap-1">
-                    {v.status === VehicleStatus.CERTIFICADO_STOCK &&
+                    {(v.status === VehicleStatus.CERTIFICADO_STOCK ||
+                      v.status === VehicleStatus.ENVIADO_A_MATRICULAR) &&
                       user?.role === RoleEnum.DOCUMENTACION && (
                         <Button
                           size="sm"

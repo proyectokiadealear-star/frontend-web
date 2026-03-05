@@ -28,7 +28,8 @@ const OBSEQUIADO_COLOR = "#f59e0b";
 const SEDE_COLORS = ["#e8382f", "#0f172a", "#3b82f6"];
 
 const STATUS_HEX: Record<string, string> = {
-  RECEPCIONADO: "#94a3b8",
+  POR_ARRIBAR: "#94a3b8",
+  ENVIADO_A_MATRICULAR: "#6366f1",
   CERTIFICADO_STOCK: "#3b82f6",
   DOCUMENTACION_PENDIENTE: "#d97706",
   DOCUMENTADO: "#7c3aed",
@@ -77,7 +78,7 @@ function buildMockWeekly(dateTo: string) {
     dt.setDate(end.getDate() - (6 - i));
     return {
       day: dt.toLocaleDateString("es-EC", { weekday: "short", day: "numeric" }),
-      Recepcionados: seed[i],
+      Registrados: seed[i],
       Entregados: seed2[i],
     };
   });
@@ -398,7 +399,7 @@ export function DashboardBI() {
                 <Tooltip content={<ChartTooltip />} />
                 <Line
                   type="monotone"
-                  dataKey="Recepcionados"
+                  dataKey="Registrados"
                   stroke="#3b82f6"
                   strokeWidth={2}
                   dot={{ r: 3, fill: "#3b82f6" }}

@@ -37,10 +37,27 @@ import toast from "react-hot-toast";
 
 const tabs = ["Ingreso / Certificación", "Documentación", "Ceremonia de Entrega", "Trazabilidad"];
 
+const DOCUMENTABLE_STATUSES = ["CERTIFICADO_STOCK", "ENVIADO_A_MATRICULAR"];
+
 const RimsStatusLabel: Record<string, string> = {
-  VIENE: "Vienen",
-  RAYADOS: "Rayados",
-  NO_VINIERON: "No vinieron",
+  BUENOS: "Buenos",
+  CON_DEFECTOS: "Con Defectos",
+  AUSENTES: "Ausentes",
+};
+
+const AntennaLabel: Record<string, string> = {
+  TIBURON: "Tiburón",
+  CONVENCIONAL: "Convencional",
+};
+
+const TrunkCoverLabel: Record<string, string> = {
+  INSTALADO: "Instalado",
+  NO_INSTALADO: "No Instalado",
+};
+
+const ImprintsLabel: Record<string, string> = {
+  CON_IMPRONTAS: "Con Improntas",
+  SIN_IMPRONTAS: "Sin Improntas",
 };
 
 export default function VehicleDetailPage() {
@@ -72,7 +89,7 @@ export default function VehicleDetailPage() {
   const [concessionairesOptions, setConcessionairesOptions] = useState<{ value: string; label: string }[]>([]);
   const [editErrors, setEditErrors] = useState<Record<string, string>>({});
   const [editVehicle, setEditVehicle] = useState({ model: "", year: "", color: "", sede: "", originConcessionaire: "", receptionDate: "" });
-  const [editCert, setEditCert] = useState({ mileage: "", radio: "", seatType: "", rimsStatus: "", hasImprints: false, notes: "" });
+  const [editCert, setEditCert] = useState({ mileage: "", radio: "", seatType: "", rimsStatus: "", antenna: "", trunkCover: "", imprints: "", notes: "" });
 
   const openEdit = async () => {
     if (!vehicle) return;
@@ -97,8 +114,10 @@ export default function VehicleDetailPage() {
       mileage: cert ? String(cert.mileage) : "",
       radio: cert?.radio ?? "",
       seatType: cert?.seatType ?? "",
-      rimsStatus: cert?.rims?.status ?? "",
-      hasImprints: cert?.hasImprints ?? false,
+      rimsStatus: cert?.rimsStatus ?? cert?.rims?.status ?? "",
+      antenna: cert?.antenna ?? "",
+      trunkCover: cert?.trunkCover ?? "",
+      imprints: cert?.imprints ?? (cert?.hasImprints ? "CON_IMPRONTAS" : "SIN_IMPRONTAS"),
       notes: cert?.notes ?? "",
     });
     // Clear previous validation errors
@@ -133,7 +152,6 @@ export default function VehicleDetailPage() {
     if (!editVehicle.year || Number(editVehicle.year) === 0) errs.year = "El año es requerido";
     if (!editVehicle.color.trim()) errs.color = "El color es requerido";
     if (!editVehicle.sede) errs.sede = "La sede es requerida";
-    if (!editVehicle.originConcessionaire.trim()) errs.originConcessionaire = "El concesionario origen es requerido";
     if (Object.keys(errs).length > 0) { setEditErrors(errs); return; }
     setEditErrors({});
     setEditSaving(true);
@@ -159,8 +177,10 @@ export default function VehicleDetailPage() {
             mileage: Number(editCert.mileage),
             radio: editCert.radio,
             seatType: editCert.seatType,
-            rims: { status: editCert.rimsStatus, photoUrl: cert?.rims?.photoUrl },
-            hasImprints: editCert.hasImprints,
+            rimsStatus: editCert.rimsStatus,
+            antenna: editCert.antenna,
+            trunkCover: editCert.trunkCover,
+            imprints: editCert.imprints,
             notes: editCert.notes,
           })
         );
@@ -264,16 +284,18 @@ export default function VehicleDetailPage() {
         badge={<StatusBadge status={vehicle.status} size="md" />}
         actions={
           <div className="flex gap-2">
+            {canEditDoc && (
+              <Button
+                variant="outline"
+                size="sm"
+                icon={<Pencil size={14} />}
+                onClick={openEdit}
+              >
+                Editar
+              </Button>
+            )}
             {isJefe && (
               <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  icon={<Pencil size={14} />}
-                  onClick={openEdit}
-                >
-                  Editar
-                </Button>
                 <Button
                   variant="outline"
                   size="sm"
@@ -292,7 +314,7 @@ export default function VehicleDetailPage() {
                 </Button>
               </>
             )}
-            {user?.role === RoleEnum.DOCUMENTACION && vehicle.status === "CERTIFICADO_STOCK" && (
+            {user?.role === RoleEnum.DOCUMENTACION && DOCUMENTABLE_STATUSES.includes(vehicle.status) && (
               <Button
                 size="sm"
                 onClick={() =>
@@ -346,8 +368,18 @@ export default function VehicleDetailPage() {
             <Field label="Color" value={vehicle.color} />
             <Field label="Chasis" value={vehicle.chassis} mono />
             <Field label="Sede" value={vehicle.sede} />
-            <Field label="Concesionario origen" value={vehicle.originConcessionaire} />
-            <Field label="Fecha de recepción" value={formatDate(vehicle.receptionDate)} />
+            {vehicle.originConcessionaire && (
+              <Field label="Concesionario origen" value={vehicle.originConcessionaire} />
+            )}
+            {vehicle.registeredDate && (
+              <Field label="Fecha de registro contable" value={formatDate(vehicle.registeredDate)} />
+            )}
+            {vehicle.registrationSentDate && (
+              <Field label="Fecha envío a matricular" value={formatDate(vehicle.registrationSentDate)} />
+            )}
+            {vehicle.receptionDate && (
+              <Field label="Fecha de recepción" value={formatDate(vehicle.receptionDate)} />
+            )}
           </FieldSection>
 
           {cert && (
@@ -355,7 +387,10 @@ export default function VehicleDetailPage() {
               <Field label="Kilometraje" value={`${cert.mileage} km`} />
               <Field label="Radio" value={cert.radio} />
               <Field label="Tipo de asiento" value={cert.seatType} />
-              <Field label="Estado de aros" value={RimsStatusLabel[cert.rims?.status ?? ""] ?? cert.rims?.status ?? "—"} />
+              <Field label="Estado de aros" value={RimsStatusLabel[cert.rimsStatus ?? cert.rims?.status ?? ""] ?? cert.rimsStatus ?? cert.rims?.status ?? "—"} />
+              <Field label="Antena" value={AntennaLabel[cert.antenna] ?? cert.antenna ?? "—"} />
+              <Field label="Cubre maletas" value={TrunkCoverLabel[cert.trunkCover] ?? cert.trunkCover ?? "—"} />
+              <Field label="Improntas" value={ImprintsLabel[cert.imprints] ?? (cert.hasImprints ? "Con Improntas" : "Sin Improntas")} />
               {cert.rims?.photoUrl && (
                 <div>
                   <p className="text-xs text-gray-500 mb-1">Foto de aros</p>
@@ -368,7 +403,6 @@ export default function VehicleDetailPage() {
                   </a>
                 </div>
               )}
-              <Field label="Improntas" value={cert.hasImprints ? "Sí" : "No"} />
               {cert.notes && <Field label="Notas" value={cert.notes} />}
               <Field label="Certificado el" value={formatDateTime(cert.certifiedAt)} />
             </FieldSection>
@@ -403,6 +437,12 @@ export default function VehicleDetailPage() {
                 <Field label="Cédula" value={doc.clientId} />
                 <Field label="Teléfono" value={doc.clientPhone} />
                 <Field label="Tipo de matrícula" value={doc.registrationType} />
+                {vehicle.registrationSentDate && (
+                  <Field label="Enviado a matricular" value={formatDate(vehicle.registrationSentDate)} />
+                )}
+                {vehicle.registrationReceivedDate && (
+                  <Field label="Matrícula recibida" value={formatDate(vehicle.registrationReceivedDate)} />
+                )}
               </FieldSection>
 
               {/* Documentos con preview y actualización inline */}
@@ -684,18 +724,27 @@ export default function VehicleDetailPage() {
                     value={editCert.mileage}
                     onChange={(e) => setEditCert((p) => ({ ...p, mileage: e.target.value }))}
                   />
-                  <Input
+                  <Select
                     label="Radio"
-                    placeholder="Ej: INSTALADO"
+                    placeholder="Seleccionar..."
                     value={editCert.radio}
+                    options={[
+                      { value: "INSTALADO", label: "Instalado" },
+                      { value: "NO_INSTALADO", label: "No Instalado" },
+                    ]}
                     onChange={(e) => setEditCert((p) => ({ ...p, radio: e.target.value }))}
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <Input
+                  <Select
                     label="Tipo de asiento"
-                    placeholder="Ej: CUERO"
+                    placeholder="Seleccionar..."
                     value={editCert.seatType}
+                    options={[
+                      { value: "CUERO", label: "Cuero" },
+                      { value: "TELA", label: "Tela" },
+                      { value: "TELA_Y_CUERO", label: "Tela y Cuero" },
+                    ]}
                     onChange={(e) => setEditCert((p) => ({ ...p, seatType: e.target.value }))}
                   />
                   <Select
@@ -703,13 +752,45 @@ export default function VehicleDetailPage() {
                     placeholder="Seleccionar..."
                     value={editCert.rimsStatus}
                     options={[
-                      { value: "VIENE", label: "Vienen" },
-                      { value: "RAYADOS", label: "Rayados" },
-                      { value: "NO_VINIERON", label: "No vinieron" },
+                      { value: "BUENOS", label: "Buenos" },
+                      { value: "CON_DEFECTOS", label: "Con Defectos" },
+                      { value: "AUSENTES", label: "Ausentes" },
                     ]}
                     onChange={(e) => setEditCert((p) => ({ ...p, rimsStatus: e.target.value }))}
                   />
                 </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Select
+                    label="Antena"
+                    placeholder="Seleccionar..."
+                    value={editCert.antenna}
+                    options={[
+                      { value: "TIBURON", label: "Tiburón" },
+                      { value: "CONVENCIONAL", label: "Convencional" },
+                    ]}
+                    onChange={(e) => setEditCert((p) => ({ ...p, antenna: e.target.value }))}
+                  />
+                  <Select
+                    label="Cubre maletas"
+                    placeholder="Seleccionar..."
+                    value={editCert.trunkCover}
+                    options={[
+                      { value: "INSTALADO", label: "Instalado" },
+                      { value: "NO_INSTALADO", label: "No Instalado" },
+                    ]}
+                    onChange={(e) => setEditCert((p) => ({ ...p, trunkCover: e.target.value }))}
+                  />
+                </div>
+                <Select
+                  label="Improntas"
+                  placeholder="Seleccionar..."
+                  value={editCert.imprints}
+                  options={[
+                    { value: "CON_IMPRONTAS", label: "Con Improntas" },
+                    { value: "SIN_IMPRONTAS", label: "Sin Improntas" },
+                  ]}
+                  onChange={(e) => setEditCert((p) => ({ ...p, imprints: e.target.value }))}
+                />
                 {cert.rims?.photoUrl && (
                   <div>
                     <p className="text-xs text-gray-500 mb-1">Foto de aros actual</p>
@@ -722,18 +803,6 @@ export default function VehicleDetailPage() {
                     </a>
                   </div>
                 )}
-                <div className="flex items-center gap-2">
-                  <input
-                    id="hasImprints"
-                    type="checkbox"
-                    checked={editCert.hasImprints}
-                    onChange={(e) => setEditCert((p) => ({ ...p, hasImprints: e.target.checked }))}
-                    className="w-4 h-4 rounded border-gray-300 text-gray-900 cursor-pointer"
-                  />
-                  <label htmlFor="hasImprints" className="text-sm text-gray-700 cursor-pointer">
-                    Tiene improntas
-                  </label>
-                </div>
                 <div className="flex flex-col gap-1.5">
                   <label className="text-sm font-medium text-gray-700">Notas</label>
                   <textarea

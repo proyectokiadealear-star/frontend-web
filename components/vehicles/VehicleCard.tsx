@@ -57,7 +57,11 @@ export function VehicleCard({ vehicle, onClick, footer, className }: VehicleCard
         </div>
 
         <p className="text-xs text-gray-400">
-          Recep. {formatDate(vehicle.receptionDate)}
+          {vehicle.registeredDate
+            ? `Registro ${formatDate(vehicle.registeredDate)}`
+            : vehicle.receptionDate
+            ? `Recep. ${formatDate(vehicle.receptionDate)}`
+            : `Creado ${formatDate(vehicle.createdAt)}`}
         </p>
 
         {footer && <div className="pt-2 border-t border-gray-100">{footer}</div>}

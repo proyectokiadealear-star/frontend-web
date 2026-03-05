@@ -30,11 +30,15 @@ export interface Vehicle {
   model: string;
   year: number;
   color: string;
-  originConcessionaire: string;
+  originConcessionaire?: string;
   photoUrl?: string;
   sede: string;
   status: VehicleStatusType;
-  receptionDate: DateField;
+  registeredDate?: DateField;
+  registeredBy?: string;
+  registrationSentDate?: DateField;
+  registrationReceivedDate?: DateField;
+  receptionDate?: DateField;
   certificationDate?: DateField;
   documentationDate?: DateField;
   installationCompleteDate?: DateField;
@@ -70,12 +74,16 @@ export interface Certification {
   vehicleId: string;
   mileage: number;
   radio: string;
-  rims: {
+  rimsStatus: string;
+  rims?: {
     status: string;
     photoUrl?: string;
   };
   seatType: string;
-  hasImprints: boolean;
+  antenna: string;
+  trunkCover: string;
+  imprints: string;
+  hasImprints?: boolean;
   certifiedBy?: string;
   certifiedAt?: string;
   notes?: string;
@@ -105,6 +113,7 @@ export interface Documentation {
   documentedBy?: string;
   documentedAt?: string;
   saveAsPending?: boolean;
+  registrationReceivedDate?: string;
 }
 
 // ============================================================
@@ -172,6 +181,28 @@ export interface Notification {
   chassis?: string;
   read: boolean;
   createdAt: string;
+}
+
+// ============================================================
+// POTENCIAL DE VENTA
+// ============================================================
+export interface SalePotentialItem {
+  key: string;
+  probability: number;
+  reason: string;
+}
+
+export interface SalePotential {
+  vehicleId: string;
+  chassis: string;
+  totalAccessories: number;
+  sold: number;
+  gifted: number;
+  notApplicable: number;
+  currentSaleRate: number;
+  potentialSaleRate: number;
+  weightedPotentialRate: number;
+  highPotentialItems: SalePotentialItem[];
 }
 
 // ============================================================

@@ -13,6 +13,9 @@ import {
   Database,
   ArrowLeftRight,
   Building2,
+  Plus,
+  Send,
+  TrendingUp,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -27,6 +30,7 @@ const navByRole: Record<string, NavItem[]> = {
   [RoleEnum.JEFE_TALLER]: [
     { href: "/dashboard", label: "Inicio", icon: <LayoutDashboard size={18} /> },
     { href: "/dashboard/stock", label: "Stock", icon: <Car size={18} /> },
+    { href: "/dashboard/potencial-venta", label: "Potencial de Venta", icon: <TrendingUp size={18} /> },
     { href: "/dashboard/agendamiento", label: "Agendamiento", icon: <Calendar size={18} /> },
     { href: "/dashboard/reportes", label: "Reportes", icon: <FileText size={18} /> },
     { href: "/dashboard/usuarios", label: "Gestión de Usuarios", icon: <Users size={18} /> },
@@ -34,6 +38,8 @@ const navByRole: Record<string, NavItem[]> = {
   ],
   [RoleEnum.DOCUMENTACION]: [
     { href: "/dashboard", label: "Inicio", icon: <LayoutDashboard size={18} /> },
+    { href: "/dashboard/ingreso-contable", label: "Ingreso Contable", icon: <Plus size={18} /> },
+    { href: "/dashboard/matriculacion", label: "Matriculación", icon: <Send size={18} /> },
     { href: "/dashboard/stock", label: "Stock", icon: <Car size={18} /> },
     { href: "/dashboard/documentacion", label: "Documentación", icon: <FileText size={18} /> },
     { href: "/dashboard/cambio-sede", label: "Cambio de Sede", icon: <ArrowLeftRight size={18} /> },

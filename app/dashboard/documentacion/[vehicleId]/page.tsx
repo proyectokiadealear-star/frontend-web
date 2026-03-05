@@ -60,9 +60,12 @@ interface FormData {
   accessories: AccessoryItem[];
 }
 
-// ── Validación cédula ecuatoriana ─────────────────────────────
-function validateCedula(cedula: string): boolean {
-  if (!/^\d{10}$/.test(cedula)) return false;
+// ── Validación cédula ecuatoriana (10 dígitos) o RUC persona natural (13 dígitos) ──
+function validateCedula(value: string): boolean {
+  if (!/^\d{10}(\d{3})?$/.test(value)) return false;
+  // Si es RUC (13 dígitos), los últimos 3 deben ser "001"
+  if (value.length === 13 && value.slice(10) !== "001") return false;
+  const cedula = value.substring(0, 10);
   const province = parseInt(cedula.substring(0, 2), 10);
   if (province < 1 || (province > 24 && province !== 30)) return false;
   const thirdDigit = parseInt(cedula[2], 10);
@@ -183,7 +186,7 @@ export default function DocumentacionFormPage() {
       e.clientId = "Requerido";
     } else if (!isEditMode && !validateCedula(formData.clientId)) {
       // In edit mode skip strict cedula check so existing (possibly test) data doesn't block navigation
-      e.clientId = "Cédula inválida. Verifica provincia (01-24), tipo (persona natural) y dígito verificador.";
+      e.clientId = "Cédula (10 dígitos) o RUC (13 dígitos) inválido. Verifica provincia (01-24), tipo (persona natural) y dígito verificador.";
     }
     if (!formData.clientPhone.trim()) {
       e.clientPhone = "Requerido";
@@ -373,10 +376,10 @@ export default function DocumentacionFormPage() {
               required
             />
             <Input
-              label="Cédula de identidad"
-              placeholder="1723456789 (10 dígitos)"
+              label="Cédula / RUC"
+              placeholder="1723456789 o 1723456789001"
               value={formData.clientId}
-              maxLength={10}
+              maxLength={13}
               onChange={(e) =>
                 setFormData((p) => ({
                   ...p,

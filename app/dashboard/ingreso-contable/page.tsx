@@ -209,7 +209,7 @@ export default function IngresoContablePage() {
                 value={form.sede}
                 error={errors.sede}
                 options={sedes.map((s) => ({
-                  value: s.name,
+                  value: s.code || s.name,
                   label: s.name,
                 }))}
                 onChange={(e) =>

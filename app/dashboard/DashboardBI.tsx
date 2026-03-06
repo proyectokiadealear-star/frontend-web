@@ -9,18 +9,15 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  LineChart,
-  Line,
   PieChart,
   Pie,
   Cell,
-  Legend,
 } from "recharts";
 import { getBIAnalytics } from "@/lib/api";
 import type { BIAnalyticsData } from "@/lib/api";
 import { VehicleStatusLabel, AccessoryLabel } from "@/lib/constants";
 import type { VehicleStatusType, AccessoryKeyType } from "@/lib/constants";
-import { RefreshCw, AlertCircle, TrendingUp } from "lucide-react";
+import { RefreshCw, AlertCircle, TrendingUp, X } from "lucide-react";
 
 // ─── Brand constants ─────────────────────────────────────────
 const KIA_RED = "#e8382f";
@@ -45,14 +42,37 @@ const STATUS_HEX: Record<string, string> = {
 
 const MEDAL = ["🥇", "🥈", "🥉"];
 
+// ─── Funnel pipeline order ───────────────────────────────────
+const FUNNEL_ORDER: VehicleStatusType[] = [
+  "POR_ARRIBAR",
+  "ENVIADO_A_MATRICULAR",
+  "CERTIFICADO_STOCK",
+  "DOCUMENTACION_PENDIENTE",
+  "DOCUMENTADO",
+  "ORDEN_GENERADA",
+  "ASIGNADO",
+  "EN_INSTALACION",
+  "INSTALACION_COMPLETA",
+  "LISTO_PARA_ENTREGA",
+  "AGENDADO",
+  "ENTREGADO",
+];
+
 // ─── Date helpers ────────────────────────────────────────────
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
 }
 function defaultFromISO(): string {
   const d = new Date();
   d.setDate(d.getDate() - 29);
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
 }
 function isoToApi(iso: string): string {
   // YYYY-MM-DD → DD/MM/YYYY
@@ -62,26 +82,6 @@ function isoToApi(iso: string): string {
 function isoToDisplay(iso: string): string {
   const d = new Date(iso + "T12:00:00");
   return d.toLocaleDateString("es-EC", { day: "2-digit", month: "short", year: "numeric" });
-}
-
-// ─── Mock weekly trend ───────────────────────────────────────
-// NOTE: El endpoint no provee desglose diario. Estos datos son mock hasta
-// que se conecte un endpoint de series temporales dedicado.
-function buildMockWeekly(dateTo: string) {
-  const [y, m, d] = dateTo.split("-").map(Number);
-  const end = new Date(y, m - 1, d);
-  // Valores deterministas basados en el día del mes para evitar hydration mismatch
-  const seed = [3, 6, 4, 8, 5, 7, 4];
-  const seed2 = [1, 3, 2, 5, 4, 3, 2];
-  return Array.from({ length: 7 }, (_, i) => {
-    const dt = new Date(end);
-    dt.setDate(end.getDate() - (6 - i));
-    return {
-      day: dt.toLocaleDateString("es-EC", { weekday: "short", day: "numeric" }),
-      Registrados: seed[i],
-      Entregados: seed2[i],
-    };
-  });
 }
 
 // ─── Sub-components ──────────────────────────────────────────
@@ -172,11 +172,24 @@ function ChartSkeleton({ h = 220 }: { h?: number }) {
   );
 }
 
+function FilterChip({ label, value, onClear }: { label: string; value: string; onClear: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 bg-white/15 backdrop-blur text-white text-xs font-medium rounded-full px-3 py-1 border border-white/20">
+      <span className="text-white/50">{label}:</span>
+      <span>{value}</span>
+      <button onClick={onClear} className="hover:bg-white/20 rounded-full p-0.5 transition-colors cursor-pointer">
+        <X size={10} />
+      </button>
+    </span>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────
 export function DashboardBI() {
   const [sede, setSede] = useState("");
   const [dateFrom, setDateFrom] = useState(defaultFromISO);
   const [dateTo, setDateTo] = useState(todayISO);
+  const [activeModel, setActiveModel] = useState("");
   const [data, setData] = useState<BIAnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -187,6 +200,7 @@ export function DashboardBI() {
     try {
       const res = await getBIAnalytics({
         sede: sede || undefined,
+        model: activeModel || undefined,
         dateFrom: isoToApi(dateFrom),
         dateTo: isoToApi(dateTo),
       });
@@ -196,14 +210,33 @@ export function DashboardBI() {
     } finally {
       setLoading(false);
     }
-  }, [sede, dateFrom, dateTo]);
+  }, [sede, dateFrom, dateTo, activeModel]);
 
   useEffect(() => {
     fetchBI();
   }, [fetchBI]);
 
+  const handleModelClick = (modelName: string) => {
+    setActiveModel((prev) => (prev === modelName ? "" : modelName));
+  };
+
   // ── Derived data ──────────────────────────────────────────
-  const weeklyTrend = useMemo(() => buildMockWeekly(dateTo), [dateTo]);
+  const funnelData = useMemo(() => {
+    if (!data) return [];
+    return FUNNEL_ORDER
+      .map((key) => ({
+        key,
+        name: VehicleStatusLabel[key],
+        value: data.byStatus[key] ?? 0,
+        fill: STATUS_HEX[key] ?? "#94a3b8",
+      }))
+      .filter((s) => s.value > 0);
+  }, [data]);
+
+  const maxFunnel = useMemo(
+    () => funnelData.reduce((max, s) => Math.max(max, s.value), 0) || 1,
+    [funnelData]
+  );
 
   const deliveryRate = useMemo(() => {
     if (!data || !data.total) return 0;
@@ -229,8 +262,9 @@ export function DashboardBI() {
       .map(([name, value]) => ({
         name: name.replace(/^KIA\s+/i, ""),
         value,
+        fill: activeModel && name.replace(/^KIA\s+/i, "") !== activeModel ? "#e5e7eb" : KIA_RED,
       }));
-  }, [data]);
+  }, [data, activeModel]);
 
   const sedeChartData = useMemo(() => {
     if (!data) return [];
@@ -259,7 +293,7 @@ export function DashboardBI() {
 
   // ── Render ─────────────────────────────────────────────────
   return (
-    <section className="mt-12">
+    <section className="mt-4">
       {/* ── Dark banner ──────────────────────────────────── */}
       <div
         className="rounded-2xl px-6 py-6"
@@ -320,11 +354,25 @@ export function DashboardBI() {
           </div>
         </div>
 
-        {/* Range label */}
-        <p className="text-[10px] text-white/30 mb-5 -mt-2">
-          {isoToDisplay(dateFrom)} — {isoToDisplay(dateTo)}
-          {sede ? ` · ${sede}` : " · Todas las sedes"}
-        </p>
+        {/* Range label + active filters */}
+        <div className="flex flex-wrap items-center gap-2 mb-5 -mt-2">
+          <p className="text-[10px] text-white/30">
+            {isoToDisplay(dateFrom)} — {isoToDisplay(dateTo)}
+            {sede ? ` · ${sede}` : " · Todas las sedes"}
+          </p>
+          {activeModel && (
+            <>
+              <span className="text-white/20 text-[10px]">|</span>
+              <FilterChip label="Modelo" value={activeModel} onClear={() => setActiveModel("")} />
+              <button
+                onClick={() => setActiveModel("")}
+                className="text-[10px] text-white/40 hover:text-white/70 underline cursor-pointer"
+              >
+                Limpiar filtros
+              </button>
+            </>
+          )}
+        </div>
 
         {/* Macro KPIs */}
         {showSkeleton ? (
@@ -368,58 +416,45 @@ export function DashboardBI() {
         ) : null}
       </div>
 
-      {/* ── Section 2: Tendencia + Sedes ─────────────────── */}
+      {/* ── Section 2: Embudo + Sedes ────────────────────── */}
       <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-5">
 
-        {/* Weekly trend (mock) */}
+        {/* Embudo de flujo vehicular */}
         <BICard>
-          <SectionHeader>Tendencia semanal</SectionHeader>
-          <p className="text-[11px] text-gray-400 mb-4 -mt-2">
-            {/* TODO: conectar a endpoint de series temporales cuando esté disponible */}
-            Datos ilustrativos · pendiente conexión a endpoint de series diarias
-          </p>
+          <SectionHeader>Embudo de flujo vehicular</SectionHeader>
           {showSkeleton ? (
-            <ChartSkeleton h={200} />
+            <ChartSkeleton h={320} />
+          ) : !funnelData.length ? (
+            <p className="text-sm text-gray-400 text-center py-16">Sin datos de flujo</p>
           ) : (
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={weeklyTrend} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis
-                  dataKey="day"
-                  tick={{ fontSize: 10, fill: "#9ca3af" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 10, fill: "#9ca3af" }}
-                  axisLine={false}
-                  tickLine={false}
-                  allowDecimals={false}
-                />
-                <Tooltip content={<ChartTooltip />} />
-                <Line
-                  type="monotone"
-                  dataKey="Registrados"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  dot={{ r: 3, fill: "#3b82f6" }}
-                  activeDot={{ r: 5 }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="Entregados"
-                  stroke={KIA_RED}
-                  strokeWidth={2}
-                  dot={{ r: 3, fill: KIA_RED }}
-                  activeDot={{ r: 5 }}
-                />
-                <Legend
-                  iconType="circle"
-                  iconSize={8}
-                  wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <div className="space-y-1">
+              {funnelData.map((step) => {
+                const pct = Math.max((step.value / maxFunnel) * 100, 14);
+                return (
+                  <div key={step.key} className="flex flex-col items-center">
+                    <div
+                      className="h-7 rounded-sm flex items-center justify-between px-3 transition-all duration-700"
+                      style={{
+                        width: `${pct}%`,
+                        background: step.fill,
+                        minWidth: 140,
+                      }}
+                      title={`${step.name}: ${step.value}`}
+                    >
+                      <span className="text-[10px] font-medium text-white truncate">
+                        {step.name}
+                      </span>
+                      <span className="text-[11px] font-bold text-white ml-2 shrink-0 tabular-nums">
+                        {step.value}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+              <p className="text-[10px] text-gray-400 text-center mt-3">
+                Ingreso → Proceso → Entrega
+              </p>
+            </div>
           )}
         </BICard>
 
@@ -530,9 +565,19 @@ export function DashboardBI() {
           )}
         </BICard>
 
-        {/* Top modelos */}
+        {/* Top modelos — click para filtrar */}
         <BICard>
-          <SectionHeader>Top modelos</SectionHeader>
+          <div className="flex items-center justify-between mb-0">
+            <SectionHeader>Top modelos</SectionHeader>
+            {activeModel && (
+              <span className="text-[10px] text-gray-400 mb-4">
+                Click para deseleccionar
+              </span>
+            )}
+          </div>
+          <p className="text-[10px] text-gray-400 -mt-3 mb-3">
+            Haz click en una barra para filtrar todos los datos
+          </p>
           {showSkeleton ? (
             <ChartSkeleton h={220} />
           ) : !modelData.length ? (
@@ -564,10 +609,17 @@ export function DashboardBI() {
                 <Bar
                   dataKey="value"
                   name="Vehículos"
-                  fill={KIA_RED}
                   radius={[4, 4, 0, 0]}
                   maxBarSize={40}
-                />
+                  cursor="pointer"
+                  onClick={(entry) => {
+                    if (entry?.name) handleModelClick(entry.name);
+                  }}
+                >
+                  {modelData.map((item, i) => (
+                    <Cell key={i} fill={item.fill} />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           )}

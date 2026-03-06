@@ -104,6 +104,7 @@ export const createVehicle = (data: {
   model: string;
   year: number;
   color: string;
+  sede?: string;
 }) => api.post<Vehicle>("/vehicles", data);
 
 export const sendToRegistration = (vehicleId: string, registrationSentDate: string) =>
@@ -160,8 +161,10 @@ export const transferVehicle = (vehicleId: string, data: FormData) =>
 export const deleteDocumentation = (vehicleId: string) =>
   api.delete(`/documentation/${vehicleId}`);
 
-export const deleteDocumentFile = (vehicleId: string, fileType: string) =>
-  api.delete(`/documentation/${vehicleId}/files/${fileType}`);
+export const deleteDocumentFile = (vehicleId: string, fileType: string, index?: number) =>
+  api.delete(`/documentation/${vehicleId}/files/${fileType}`, {
+    params: index !== undefined ? { index } : undefined,
+  });
 
 // ============================================================
 // SERVICE ORDERS
@@ -209,10 +212,12 @@ export const getAnalytics = (params?: { sede?: string; from?: string; to?: strin
 
 export const getBIAnalytics = (params: {
   sede?: string;
+  model?: string;
   dateFrom: string;
   dateTo: string;
 }) => api.get<BIAnalyticsData>("/reports/analytics", { params: {
   ...(params.sede ? { sede: params.sede } : {}),
+  ...(params.model ? { model: params.model } : {}),
   dateFrom: params.dateFrom,
   dateTo: params.dateTo,
 } });

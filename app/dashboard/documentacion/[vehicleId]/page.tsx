@@ -8,13 +8,14 @@ import {
   createDocumentation,
   updateDocumentation,
   getAccessories,
+  deleteDocumentFile,
 } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { ArrowLeft, Upload, FileText, RefreshCw, X, CheckCircle } from "lucide-react";
+import { ArrowLeft, Upload, FileText, RefreshCw, X, CheckCircle, Plus, Trash2, AlertTriangle } from "lucide-react";
 import {
   AccessoryKey,
   AccessoryLabel,
@@ -60,55 +61,9 @@ interface FormData {
   accessories: AccessoryItem[];
 }
 
-// ── Validación cédula ecuatoriana (10 dígitos) o RUC (13 dígitos) ──
+// Validación básica de formato — el backend (IsEcuadorianCedula) hace la verificación completa
 function validateCedula(value: string): boolean {
-  if (!/^\d{10}(\d{3})?$/.test(value)) return false;
-  const isRuc = value.length === 13;
-  const province = parseInt(value.substring(0, 2), 10);
-  if (province < 1 || (province > 24 && province !== 30)) return false;
-  const thirdDigit = parseInt(value[2], 10);
-
-  // Persona natural (tercer dígito 0-5)
-  if (thirdDigit < 6) {
-    if (isRuc && value.slice(10) !== "001") return false;
-    const coefficients = [2, 1, 2, 1, 2, 1, 2, 1, 2];
-    let sum = 0;
-    for (let i = 0; i < 9; i++) {
-      let val = parseInt(value[i], 10) * coefficients[i];
-      if (val >= 10) val -= 9;
-      sum += val;
-    }
-    const check = (10 - (sum % 10)) % 10;
-    return check === parseInt(value[9], 10);
-  }
-
-  // Sociedad pública (tercer dígito 6) — módulo 11 con 9 dígitos
-  if (thirdDigit === 6) {
-    if (!isRuc || value.slice(9) !== "0001") return false;
-    const coefficients = [3, 2, 7, 6, 5, 4, 3, 2];
-    let sum = 0;
-    for (let i = 0; i < 8; i++) {
-      sum += parseInt(value[i], 10) * coefficients[i];
-    }
-    const remainder = sum % 11;
-    const check = remainder === 0 ? 0 : 11 - remainder;
-    return check === parseInt(value[8], 10);
-  }
-
-  // Sociedad privada (tercer dígito 9) — módulo 11 con 10 dígitos
-  if (thirdDigit === 9) {
-    if (!isRuc || value.slice(10) !== "001") return false;
-    const coefficients = [4, 3, 2, 7, 6, 5, 4, 3, 2];
-    let sum = 0;
-    for (let i = 0; i < 9; i++) {
-      sum += parseInt(value[i], 10) * coefficients[i];
-    }
-    const remainder = sum % 11;
-    const check = remainder === 0 ? 0 : 11 - remainder;
-    return check === parseInt(value[9], 10);
-  }
-
-  return false; // tercer dígito 7 u 8 no válido
+  return /^\d{10}(\d{3})?$/.test(value);
 }
 
 export default function DocumentacionFormPage() {
@@ -133,9 +88,9 @@ export default function DocumentacionFormPage() {
 
   const [files, setFiles] = useState<{
     invoiceFile?: File;
-    giftEmailFile?: File;
-    accessoryInvoiceFile?: File;
-  }>({});
+    giftEmailFiles: File[];
+    accessoryInvoiceFiles: File[];
+  }>({ giftEmailFiles: [], accessoryInvoiceFiles: [] });
 
   const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});
 
@@ -176,25 +131,45 @@ export default function DocumentacionFormPage() {
       if (dRes?.data) {
         const d = dRes.data;
         setExistingDoc(d);
+        let accessories = buildFromCatalog(d.accessories);
+        // Reapertura: pre-select requested accessories as VENDIDO
+        if (vRes.data.isReopening && vRes.data.reopenAccessories?.length) {
+          const reopenSet = new Set(vRes.data.reopenAccessories.map((k: string) => k.toUpperCase()));
+          accessories = accessories.map(a =>
+            reopenSet.has(a.key.toUpperCase())
+              ? { ...a, classification: AccessoryClassification.VENDIDO as AccessoryClassificationType }
+              : a
+          );
+        }
         setFormData({
           clientName: d.clientName || "",
           clientId: d.clientId || "",
           clientPhone: d.clientPhone || "",
           registrationType: d.registrationType || "",
           paymentMethod: d.paymentMethod || "",
-          accessories: buildFromCatalog(d.accessories),
+          accessories,
         });
       } else {
         // Pre-fill client fields from vehicle data (populated by Excel import).
         // All fields remain editable — this is just a convenience pre-fill.
         const v = vRes.data;
+        let acc = buildFromCatalog();
+        // Reapertura: pre-select requested accessories as VENDIDO
+        if (v.isReopening && v.reopenAccessories?.length) {
+          const reopenSet = new Set(v.reopenAccessories.map((k: string) => k.toUpperCase()));
+          acc = acc.map(a =>
+            reopenSet.has(a.key.toUpperCase())
+              ? { ...a, classification: AccessoryClassification.VENDIDO as AccessoryClassificationType }
+              : a
+          );
+        }
         setFormData((prev) => ({
           ...prev,
           clientName:    v.clientName    ?? prev.clientName,
           clientId:      v.clientId      ?? prev.clientId,
           clientPhone:   v.clientPhone   ?? prev.clientPhone,
           paymentMethod: v.paymentMethod ?? prev.paymentMethod,
-          accessories:   buildFromCatalog(),
+          accessories:   acc,
         }));
       }
     } catch {
@@ -216,7 +191,7 @@ export default function DocumentacionFormPage() {
       e.clientId = "Requerido";
     } else if (!isEditMode && !validateCedula(formData.clientId)) {
       // In edit mode skip strict cedula check so existing (possibly test) data doesn't block navigation
-      e.clientId = "Cédula (10 dígitos) o RUC (13 dígitos) inválido. Verifica provincia (01-24), tipo y dígito verificador.";
+      e.clientId = "Debe tener 10 dígitos (cédula) o 13 dígitos (RUC).";
     }
     if (!formData.clientPhone.trim()) {
       e.clientPhone = "Requerido";
@@ -277,9 +252,8 @@ export default function DocumentacionFormPage() {
       )
     );
     if (files.invoiceFile) fd.append("vehicleInvoice", files.invoiceFile);
-    if (files.giftEmailFile) fd.append("giftEmail", files.giftEmailFile);
-    if (files.accessoryInvoiceFile)
-      fd.append("accessoryInvoice", files.accessoryInvoiceFile);
+    files.giftEmailFiles.forEach((f) => fd.append("giftEmail", f));
+    files.accessoryInvoiceFiles.forEach((f) => fd.append("accessoryInvoice", f));
     return fd;
   };
 
@@ -294,7 +268,11 @@ export default function DocumentacionFormPage() {
       }
 
       if (isEditMode) {
-        if (!saveAsPending && isPending) {
+        if (!saveAsPending && vehicle?.isReopening) {
+          // Completed reopening doc → go to vehicle detail (already ASIGNADO)
+          toast.success("Documentación de reapertura completada");
+          router.push(`/dashboard/stock/${vehicleId}`);
+        } else if (!saveAsPending && isPending) {
           // Completed a pending doc → go to stock
           toast.success("Documentación completada correctamente");
           router.push("/dashboard/stock");
@@ -376,6 +354,46 @@ export default function DocumentacionFormPage() {
         subtitle={`${vehicle.model} | Chasis: ${vehicle.chassis}`}
         badge={<StatusBadge status={vehicle.status} />}
       />
+
+      {/* Reapertura Banner */}
+      {vehicle.isReopening && (
+        <div className="mb-6 border border-amber-300 bg-amber-50 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0 mt-0.5">
+              <AlertTriangle size={16} className="text-amber-600" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-amber-800">
+                Reapertura solicitada
+              </p>
+              <p className="text-sm text-amber-700 mt-1">
+                Solicitada por{" "}
+                <span className="font-medium">
+                  {vehicle.reopenRequestedByName}
+                </span>
+                : {vehicle.reopenReason}
+              </p>
+              {vehicle.reopenAccessories && vehicle.reopenAccessories.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-xs font-medium text-amber-600 mb-1">
+                    Accesorios solicitados:
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {vehicle.reopenAccessories.map((key) => (
+                      <span
+                        key={key}
+                        className="px-2 py-0.5 bg-amber-100 text-amber-700 text-xs rounded-full font-medium"
+                      >
+                        {AccessoryLabel[key.toUpperCase() as keyof typeof AccessoryLabel] ?? key}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stepper */}
       <div className="flex items-center gap-0 mb-8 bg-white border border-gray-200 rounded-xl p-1 w-fit">
@@ -513,21 +531,25 @@ export default function DocumentacionFormPage() {
               onChange={(f) => setFiles((p) => ({ ...p, invoiceFile: f }))}
               required
             />
-            <FileField
+            <MultiFileField
               label="Correo de obsequio (PDF)"
-              name="giftEmailFile"
-              existingUrl={existingDoc?.giftEmailUrl}
-              file={files.giftEmailFile}
-              onChange={(f) => setFiles((p) => ({ ...p, giftEmailFile: f }))}
+              fieldName="giftEmail"
+              vehicleId={vehicleId!}
+              existingUrls={existingDoc?.giftEmailUrls ?? (existingDoc?.giftEmailUrl ? [existingDoc.giftEmailUrl] : [])}
+              files={files.giftEmailFiles}
+              onChange={(f) => setFiles((p) => ({ ...p, giftEmailFiles: f }))}
+              max={5}
+              onExistingRemoved={fetchData}
             />
-            <FileField
+            <MultiFileField
               label="Factura de accesorios (PDF)"
-              name="accessoryInvoiceFile"
-              existingUrl={existingDoc?.accessoryInvoiceUrl}
-              file={files.accessoryInvoiceFile}
-              onChange={(f) =>
-                setFiles((p) => ({ ...p, accessoryInvoiceFile: f }))
-              }
+              fieldName="accessoryInvoice"
+              vehicleId={vehicleId!}
+              existingUrls={existingDoc?.accessoryInvoiceUrls ?? (existingDoc?.accessoryInvoiceUrl ? [existingDoc.accessoryInvoiceUrl] : [])}
+              files={files.accessoryInvoiceFiles}
+              onChange={(f) => setFiles((p) => ({ ...p, accessoryInvoiceFiles: f }))}
+              max={5}
+              onExistingRemoved={fetchData}
             />
           </div>
         )}
@@ -636,7 +658,7 @@ export default function DocumentacionFormPage() {
               >
                 Guardar cambios
               </Button>
-              {isPending && (
+              {isPending && !vehicle?.isReopening && (
                 <Button
                   variant="primary"
                   onClick={() => handleSave(false)}
@@ -646,25 +668,37 @@ export default function DocumentacionFormPage() {
                   Completar documentación
                 </Button>
               )}
+              {vehicle?.isReopening && (
+                <Button
+                  variant="primary"
+                  onClick={() => handleSave(false)}
+                  loading={saving === "final"}
+                  disabled={saving !== null}
+                >
+                  Completar reapertura
+                </Button>
+              )}
             </>
           ) : (
             // ── CREATE MODE ────────────────────────────────────────
             <>
-              <Button
-                variant="outline"
-                onClick={() => handleSave(true)}
-                loading={saving === "pending"}
-                disabled={saving !== null}
-              >
-                Guardar como pendiente
-              </Button>
+              {!vehicle?.isReopening && (
+                <Button
+                  variant="outline"
+                  onClick={() => handleSave(true)}
+                  loading={saving === "pending"}
+                  disabled={saving !== null}
+                >
+                  Guardar como pendiente
+                </Button>
+              )}
               <Button
                 variant="primary"
                 onClick={() => handleSave(false)}
                 loading={saving === "final"}
                 disabled={saving !== null}
               >
-                Guardar y documentar
+                {vehicle?.isReopening ? "Completar reapertura" : "Guardar y documentar"}
               </Button>
             </>
           )}
@@ -767,6 +801,142 @@ function FileField({
             onChange={(e) => onChange(e.target.files?.[0])}
           />
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── MultiFileField (múltiples PDFs, hasta N) ─────────────────
+
+function MultiFileField({
+  label,
+  fieldName,
+  vehicleId,
+  existingUrls,
+  files,
+  onChange,
+  max,
+  onExistingRemoved,
+}: {
+  label: string;
+  fieldName: string;
+  vehicleId: string;
+  existingUrls: string[];
+  files: File[];
+  onChange: (files: File[]) => void;
+  max: number;
+  onExistingRemoved?: () => void;
+}) {
+  const [inputKey, setInputKey] = useState(0);
+  const [removingIdx, setRemovingIdx] = useState<number | null>(null);
+  const totalCount = existingUrls.length + files.length;
+  const canAdd = totalCount < max;
+
+  const handleAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files?.[0];
+    if (!selected) return;
+    if (existingUrls.length + files.length >= max) {
+      toast.error(`Máximo ${max} archivos permitidos`);
+      return;
+    }
+    onChange([...files, selected]);
+    setInputKey((k) => k + 1);
+  };
+
+  const handleRemoveNew = (idx: number) => {
+    onChange(files.filter((_, i) => i !== idx));
+  };
+
+  const handleRemoveExisting = async (index: number) => {
+    setRemovingIdx(index);
+    try {
+      await deleteDocumentFile(vehicleId, fieldName, index);
+      toast.success("Archivo eliminado");
+      onExistingRemoved?.();
+    } catch {
+      toast.error("Error al eliminar el archivo");
+    } finally {
+      setRemovingIdx(null);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <label className="text-sm font-medium text-gray-700">{label}</label>
+
+      {/* Existing files from server */}
+      {existingUrls.map((url, idx) => (
+        <div
+          key={`existing-${idx}`}
+          className="flex items-center justify-between border border-gray-200 rounded-xl px-4 py-3 bg-gray-50"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-green-100 flex items-center justify-center shrink-0">
+              <CheckCircle size={13} className="text-green-600" />
+            </div>
+            <span className="text-sm font-medium text-gray-700 truncate">
+              Documento {idx + 1} — guardado
+            </span>
+          </div>
+          <button
+            type="button"
+            disabled={removingIdx === idx}
+            onClick={() => handleRemoveExisting(idx)}
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+            title="Eliminar archivo"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      ))}
+
+      {/* New files (not yet saved) */}
+      {files.map((file, idx) => (
+        <div
+          key={`new-${idx}`}
+          className="flex items-center justify-between border border-amber-200 rounded-xl px-4 py-3 bg-amber-50"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+              <FileText size={13} className="text-amber-600" />
+            </div>
+            <span className="text-sm font-medium text-gray-800 truncate">{file.name}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleRemoveNew(idx)}
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer shrink-0"
+            title="Quitar archivo"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+
+      {/* Add button */}
+      {canAdd && (
+        <div>
+          <label
+            htmlFor={`multi-${fieldName}`}
+            className="inline-flex items-center gap-2 border border-dashed border-gray-300 rounded-xl px-4 py-3 text-sm text-gray-500 hover:bg-gray-50 hover:border-gray-400 cursor-pointer transition-colors w-full justify-center"
+          >
+            {totalCount === 0 ? <Upload size={15} /> : <Plus size={15} />}
+            {totalCount === 0 ? "Seleccionar PDF" : "Agregar otro PDF"}
+          </label>
+          <input
+            key={inputKey}
+            id={`multi-${fieldName}`}
+            type="file"
+            accept=".pdf"
+            className="hidden"
+            onChange={handleAdd}
+          />
+        </div>
+      )}
+
+      {/* Counter */}
+      {totalCount > 0 && (
+        <p className="text-xs text-gray-400">{totalCount} de {max} archivos</p>
       )}
     </div>
   );

@@ -28,6 +28,7 @@ import { DateInput } from "@/components/ui/DateInput";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { TraceabilityTimeline } from "@/components/vehicles/TraceabilityTimeline";
 import { DocFileField } from "@/components/vehicles/DocFileField";
+import { DocMultiFileField } from "@/components/vehicles/DocMultiFileField";
 import { AccessoryLabel, AccessoryClassificationLabel, RoleEnum } from "@/lib/constants";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import { generateVehiclePDF } from "@/lib/generateVehiclePDF";
@@ -458,18 +459,20 @@ export default function VehicleDetailPage() {
                     existingUrl={doc.vehicleInvoiceUrl}
                     onSaved={fetchAll}
                   />
-                  <DocFileField
+                  <DocMultiFileField
                     label="Correo de obsequio"
                     fieldName="giftEmail"
                     vehicleId={id!}
-                    existingUrl={doc.giftEmailUrl}
+                    existingUrls={doc.giftEmailUrls ?? (doc.giftEmailUrl ? [doc.giftEmailUrl] : [])}
+                    max={5}
                     onSaved={fetchAll}
                   />
-                  <DocFileField
+                  <DocMultiFileField
                     label="Factura de accesorios"
                     fieldName="accessoryInvoice"
                     vehicleId={id!}
-                    existingUrl={doc.accessoryInvoiceUrl}
+                    existingUrls={doc.accessoryInvoiceUrls ?? (doc.accessoryInvoiceUrl ? [doc.accessoryInvoiceUrl] : [])}
+                    max={5}
                     onSaved={fetchAll}
                   />
                 </div>

@@ -56,15 +56,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const { data } = await authLogin(email, password);
 
-    // Debug: log completo de la respuesta para identificar campos reales
-    console.log("[AuthContext] login response:", data);
-
     // El backend puede devolver los datos en el root o anidados en 'user' o 'data'
     const nested = data as unknown as Record<string, Record<string, string>>;
     const payload: Record<string, string> =
       nested.user ?? nested.data ?? data;
-
-    console.log("[AuthContext] payload extraído:", payload);
 
     // Acepta múltiples nombres posibles para el token
     const token: string =
@@ -88,8 +83,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sede: payload.sede ?? "",
       token,
     };
-
-    console.log("[AuthContext] usuario autenticado:", { uid: authUser.uid, role: authUser.role, sede: authUser.sede });
 
     localStorage.setItem(TOKEN_KEY, token);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(authUser));

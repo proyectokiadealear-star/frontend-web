@@ -64,6 +64,7 @@ export const RoleEnum = {
   PERSONAL_TALLER: "PERSONAL_TALLER",
   DOCUMENTACION: "DOCUMENTACION",
   SOPORTE: "SOPORTE",
+  BODEGUERO: "BODEGUERO",
 } as const;
 
 export type RoleEnumType = (typeof RoleEnum)[keyof typeof RoleEnum];
@@ -75,6 +76,7 @@ export const RoleLabel: Record<RoleEnumType, string> = {
   PERSONAL_TALLER: "Personal de Taller",
   DOCUMENTACION: "Documentación",
   SOPORTE: "Soporte",
+  BODEGUERO: "Bodeguero",
 };
 
 // ============================================================

@@ -10,12 +10,13 @@ import {
   ClipboardCheck,
   Info,
   CheckCheck,
+  RotateCcw,
 } from "lucide-react";
 import { getNotifications, markNotificationRead } from "@/lib/api";
 import type { Notification } from "@/types";
 import { cn } from "@/lib/utils";
 
-const POLL_INTERVAL = 30_000;
+const POLL_INTERVAL = 60_000;
 
 // ── Type metadata ────────────────────────────────────────────
 type TypeMeta = {
@@ -55,6 +56,12 @@ const TYPE_META: Record<string, TypeMeta> = {
     bg: "bg-green-50",
     iconColor: "text-green-500",
     border: "border-l-green-400",
+  },
+  REAPERTURA: {
+    icon: RotateCcw,
+    bg: "bg-red-50",
+    iconColor: "text-red-500",
+    border: "border-l-red-400",
   },
 };
 

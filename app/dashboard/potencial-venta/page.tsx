@@ -52,7 +52,7 @@ export default function PotencialVentaPage() {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState(DEFAULT_STATUSES);
   const [loading, setLoading] = useState(true);
-  const limit = 12;
+  const PAGE_SIZE = 7;
 
   // Potencial bruto per vehicle
   const [rateMap, setRateMap] = useState<Record<string, number | null>>({});
@@ -67,9 +67,9 @@ export default function PotencialVentaPage() {
     try {
       const res = await getVehicles({
         chassis: search || undefined,
-        status: filterStatus || undefined,
+        status: filterStatus || DEFAULT_STATUSES,
         page,
-        limit,
+        limit: PAGE_SIZE,
       });
       const list: Vehicle[] = res.data.data || [];
       setVehicles(list);
@@ -278,7 +278,7 @@ export default function PotencialVentaPage() {
         </div>
       )}
 
-      <Pagination page={page} total={total} limit={limit} onChange={setPage} />
+      <Pagination page={page} total={total} limit={PAGE_SIZE} onChange={setPage} />
 
       {/* ─── Detail Modal ──────────────────────────────────── */}
       <Modal

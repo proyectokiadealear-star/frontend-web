@@ -31,17 +31,23 @@ export function DocumentacionDashboard() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [porArribarRes, enviadoRes, certifiedRes, pendingRes] = await Promise.all([
+      const [porArribarRes, allRes] = await Promise.all([
         getVehicles({ status: VehicleStatus.POR_ARRIBAR, limit: 1 }),
-        getVehicles({ status: VehicleStatus.ENVIADO_A_MATRICULAR, limit: 50 }),
-        getVehicles({ status: VehicleStatus.CERTIFICADO_STOCK, limit: 50 }),
-        getVehicles({ status: VehicleStatus.DOCUMENTACION_PENDIENTE, limit: 50 }),
+        getVehicles({
+          status: [
+            VehicleStatus.ENVIADO_A_MATRICULAR,
+            VehicleStatus.CERTIFICADO_STOCK,
+            VehicleStatus.DOCUMENTACION_PENDIENTE,
+          ].join(","),
+          limit: 150,
+        }),
       ]);
 
       setPorArribarCount(porArribarRes.data.total || 0);
-      setEnviadoVehicles(enviadoRes.data.data || []);
-      setCertifiedVehicles(certifiedRes.data.data || []);
-      setPendingVehicles(pendingRes.data.data || []);
+      const list = allRes.data.data || [];
+      setEnviadoVehicles(list.filter((v) => v.status === VehicleStatus.ENVIADO_A_MATRICULAR));
+      setCertifiedVehicles(list.filter((v) => v.status === VehicleStatus.CERTIFICADO_STOCK));
+      setPendingVehicles(list.filter((v) => v.status === VehicleStatus.DOCUMENTACION_PENDIENTE));
     } catch {
       toast.error("Error al cargar datos");
     } finally {
@@ -62,7 +68,7 @@ export function DocumentacionDashboard() {
     <div>
       <PageHeader
         title="Inicio"
-        subtitle={`Bienvenida, ${user?.displayName || user?.email}`}
+        subtitle={`Hola, ${user?.displayName || user?.email}`}
       />
 
       {/* KPIs */}

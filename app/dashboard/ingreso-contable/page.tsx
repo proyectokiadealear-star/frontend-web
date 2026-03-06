@@ -6,6 +6,7 @@ import {
   getVehicles,
   getModels,
   getColors,
+  getSedes,
   createVehicle,
 } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -25,6 +26,7 @@ export default function IngresoContablePage() {
   // Catalogs
   const [models, setModels] = useState<CatalogItem[]>([]);
   const [colors, setColors] = useState<CatalogItem[]>([]);
+  const [sedes, setSedes] = useState<CatalogItem[]>([]);
 
   // Form
   const [form, setForm] = useState({
@@ -32,6 +34,7 @@ export default function IngresoContablePage() {
     model: "",
     year: "",
     color: "",
+    sede: "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -41,17 +44,14 @@ export default function IngresoContablePage() {
   const [loadingRecent, setLoadingRecent] = useState(true);
 
   const currentYear = new Date().getFullYear();
-  const yearOptions = [
-    { value: String(currentYear), label: String(currentYear) },
-    { value: String(currentYear + 1), label: String(currentYear + 1) },
-  ];
 
   // Fetch catalogs
   useEffect(() => {
-    Promise.all([getModels(), getColors()])
-      .then(([mRes, cRes]) => {
+    Promise.all([getModels(), getColors(), getSedes()])
+      .then(([mRes, cRes, sRes]) => {
         setModels(mRes.data ?? []);
         setColors(cRes.data ?? []);
+        setSedes(sRes.data ?? []);
       })
       .catch(() => {});
   }, []);
@@ -84,8 +84,12 @@ export default function IngresoContablePage() {
     else if (!/^[A-Za-z0-9]{6,20}$/.test(chassis))
       errs.chassis = "6-20 caracteres alfanuméricos";
     if (!form.model) errs.model = "Selecciona un modelo";
-    if (!form.year) errs.year = "Selecciona el año";
+    const yearNum = Number(form.year);
+    if (!form.year) errs.year = "Ingresa el año";
+    else if (!Number.isInteger(yearNum) || yearNum < currentYear)
+      errs.year = `El año debe ser ${currentYear} o superior`;
     if (!form.color) errs.color = "Selecciona un color";
+    if (!form.sede) errs.sede = "Selecciona una sede";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -100,9 +104,10 @@ export default function IngresoContablePage() {
         model: form.model.toUpperCase(),
         year: Number(form.year),
         color: form.color.toUpperCase(),
+        sede: form.sede,
       });
       toast.success("Vehículo registrado correctamente");
-      setForm({ chassis: "", model: "", year: "", color: "" });
+      setForm({ chassis: "", model: "", year: "", color: "", sede: "" });
       setErrors({});
       fetchRecent();
     } catch (err: unknown) {
@@ -169,13 +174,14 @@ export default function IngresoContablePage() {
                 }
               />
               <div className="grid grid-cols-2 gap-3">
-                <Select
+                <Input
                   label="Año"
                   required
-                  placeholder="Año..."
+                  type="number"
+                  placeholder={String(currentYear)}
+                  min={currentYear}
                   value={form.year}
                   error={errors.year}
-                  options={yearOptions}
                   onChange={(e) =>
                     setForm((p) => ({ ...p, year: e.target.value }))
                   }
@@ -196,13 +202,22 @@ export default function IngresoContablePage() {
                 />
               </div>
 
+              <Select
+                label="Sede"
+                required
+                placeholder="Seleccionar sede..."
+                value={form.sede}
+                error={errors.sede}
+                options={sedes.map((s) => ({
+                  value: s.name,
+                  label: s.name,
+                }))}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, sede: e.target.value }))
+                }
+              />
+
               <div className="pt-3 border-t border-gray-100">
-                <p className="text-xs text-gray-400 mb-3">
-                  Sede asignada:{" "}
-                  <span className="font-medium text-gray-600">
-                    {user?.sede ?? "—"}
-                  </span>
-                </p>
                 <Button
                   variant="primary"
                   fullWidth

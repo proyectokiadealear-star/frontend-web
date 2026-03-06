@@ -26,6 +26,7 @@ const STATUSES = [
   { value: VehicleStatus.ENVIADO_A_MATRICULAR, label: "Enviado a Matricular" },
   { value: VehicleStatus.CERTIFICADO_STOCK, label: "Certificado en Stock" },
   { value: VehicleStatus.DOCUMENTACION_PENDIENTE, label: "Doc. Pendiente" },
+  { value: VehicleStatus.REAPERTURA_OT, label: "Reapertura OT" },
 ];
 
 const ALL_ACCESSORY_KEYS = Object.values(AccessoryKey);
@@ -208,6 +209,18 @@ export default function DocumentacionListPage() {
                         }}
                       >
                         Documentar
+                      </Button>
+                    )}
+                    {v.status === VehicleStatus.REAPERTURA_OT && (
+                      <Button
+                        size="sm"
+                        variant="primary"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push(`/dashboard/documentacion/${v.id}`);
+                        }}
+                      >
+                        Documentar reapertura
                       </Button>
                     )}
                   </div>

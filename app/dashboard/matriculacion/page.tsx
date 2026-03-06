@@ -9,15 +9,43 @@ import { DateInput } from "@/components/ui/DateInput";
 import { Modal } from "@/components/ui/Modal";
 import { SkeletonGrid } from "@/components/ui/Skeleton";
 import { StatsCard } from "@/components/ui/StatsCard";
-import { VehicleStatus } from "@/lib/constants";
+import { SearchFilterBar } from "@/components/ui/SearchFilterBar";
+import { Pagination } from "@/components/ui/Pagination";
+import { VehicleStatus, VehicleStatusLabel } from "@/lib/constants";
 import type { Vehicle } from "@/types";
-import { Send, Clock, CheckCircle, FileCheck } from "lucide-react";
+import { Send, Clock, FileCheck, AlertCircle } from "lucide-react";
 import toast from "react-hot-toast";
+import { localToday } from "@/lib/utils";
+
+/* Statuses where matrícula reception can still be registered */
+const TRACKING_STATUSES = [
+  VehicleStatus.ENVIADO_A_MATRICULAR,
+  VehicleStatus.DOCUMENTACION_PENDIENTE,
+  VehicleStatus.DOCUMENTADO,
+  VehicleStatus.CERTIFICADO_STOCK,
+  VehicleStatus.ORDEN_GENERADA,
+  VehicleStatus.ASIGNADO,
+  VehicleStatus.EN_INSTALACION,
+  VehicleStatus.INSTALACION_COMPLETA,
+  VehicleStatus.REAPERTURA_OT,
+  VehicleStatus.LISTO_PARA_ENTREGA,
+] as const;
+
+const PAGE_SIZE = 7;
 
 export default function MatriculacionPage() {
   const [porArribar, setPorArribar] = useState<Vehicle[]>([]);
-  const [enviados, setEnviados] = useState<Vehicle[]>([]);
+  const [enProceso, setEnProceso] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Filters for POR_ARRIBAR table
+  const [searchArribar, setSearchArribar] = useState("");
+  const [pageArribar, setPageArribar] = useState(1);
+
+  // Filters for tracking table
+  const [searchChassis, setSearchChassis] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [pageTracking, setPageTracking] = useState(1);
 
   // Modal state — Enviar a matricular
   const [selected, setSelected] = useState<Vehicle | null>(null);
@@ -32,12 +60,12 @@ export default function MatriculacionPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [porRes, envRes] = await Promise.all([
+      const [porRes, trackingRes] = await Promise.all([
         getVehicles({ status: VehicleStatus.POR_ARRIBAR, limit: 100 }),
-        getVehicles({ status: VehicleStatus.ENVIADO_A_MATRICULAR, limit: 100 }),
+        getVehicles({ status: TRACKING_STATUSES.join(","), limit: 200 }),
       ]);
       setPorArribar(porRes.data.data || []);
-      setEnviados(envRes.data.data || []);
+      setEnProceso(trackingRes.data.data || []);
     } catch {
       toast.error("Error al cargar vehículos");
     } finally {
@@ -93,6 +121,31 @@ export default function MatriculacionPage() {
     }
   };
 
+  /* Only vehicles WITHOUT registrationReceivedDate */
+  const pendientes = enProceso.filter((v) => !v.registrationReceivedDate);
+  const recibidos = enProceso.filter((v) => !!v.registrationReceivedDate);
+
+  /* Apply search + status filter */
+  const filtered = pendientes.filter((v) => {
+    if (searchChassis && !v.chassis.toLowerCase().includes(searchChassis.toLowerCase())) return false;
+    if (filterStatus && v.status !== filterStatus) return false;
+    return true;
+  });
+
+  /* POR_ARRIBAR filtered + paginated */
+  const filteredArribar = porArribar.filter((v) =>
+    !searchArribar || v.chassis.toLowerCase().includes(searchArribar.toLowerCase())
+  );
+  const pagedArribar = filteredArribar.slice((pageArribar - 1) * PAGE_SIZE, pageArribar * PAGE_SIZE);
+
+  /* Tracking paginated */
+  const pagedTracking = filtered.slice((pageTracking - 1) * PAGE_SIZE, pageTracking * PAGE_SIZE);
+
+  const statusFilterOptions = TRACKING_STATUSES.map((s) => ({
+    value: s,
+    label: VehicleStatusLabel[s] ?? s,
+  }));
+
   return (
     <div>
       <PageHeader
@@ -109,14 +162,14 @@ export default function MatriculacionPage() {
           color="default"
         />
         <StatsCard
-          label="Enviados a matricular"
-          value={enviados.length}
-          icon={<CheckCircle size={18} />}
-          color="blue"
+          label="Pendiente recepción"
+          value={pendientes.length}
+          icon={<AlertCircle size={18} />}
+          color="amber"
         />
         <StatsCard
           label="Matrícula recibida"
-          value={enviados.filter((v) => v.registrationReceivedDate).length}
+          value={recibidos.length}
           icon={<FileCheck size={18} />}
           color="green"
         />
@@ -133,136 +186,51 @@ export default function MatriculacionPage() {
           </span>
         </div>
 
+        <SearchFilterBar
+          searchValue={searchArribar}
+          onSearchChange={(v) => { setSearchArribar(v); setPageArribar(1); }}
+          searchPlaceholder="Buscar por chasis..."
+        />
+
         {loading ? (
           <SkeletonGrid cols={1} rows={3} />
-        ) : porArribar.length === 0 ? (
+        ) : filteredArribar.length === 0 ? (
           <div className="bg-white border border-gray-200 rounded-xl p-12 text-center">
             <Send size={32} className="mx-auto text-gray-300 mb-3" />
             <p className="text-sm text-gray-400">
-              No hay vehículos pendientes de envío a matricular.
+              {porArribar.length === 0
+                ? "No hay vehículos pendientes de envío a matricular."
+                : "No se encontraron vehículos con ese chasis."}
             </p>
           </div>
         ) : (
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Chasis
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Modelo
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Año
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Color
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Sede
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Estado
-                  </th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Acción
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {porArribar.map((v) => (
-                  <tr
-                    key={v.id}
-                    className="hover:bg-gray-50 transition-colors"
-                  >
-                    <td className="px-4 py-3 font-mono text-xs text-gray-700">
-                      {v.chassis}
-                    </td>
-                    <td className="px-4 py-3 text-gray-900 font-medium">
-                      {v.model}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{v.year}</td>
-                    <td className="px-4 py-3 text-gray-600">{v.color}</td>
-                    <td className="px-4 py-3 text-gray-600 text-xs">
-                      {v.sede}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={v.status} />
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        icon={<Send size={13} />}
-                        onClick={() => {
-                          setSelected(v);
-                          setDate(new Date().toISOString().slice(0, 10));
-                        }}
-                      >
-                        Enviar
-                      </Button>
-                    </td>
+          <>
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      Chasis
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      Modelo
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      Año
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      Color
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      Sede
+                    </th>
+                    <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      Acción
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Enviados recientemente */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">
-            Enviados a matricular
-          </h2>
-          <span className="text-xs bg-indigo-50 text-indigo-600 font-medium px-2 py-0.5 rounded-full">
-            {enviados.length}
-          </span>
-        </div>
-
-        {loading ? (
-          <SkeletonGrid cols={1} rows={2} />
-        ) : enviados.length === 0 ? (
-          <div className="bg-white border border-gray-200 rounded-xl p-8 text-center">
-            <p className="text-sm text-gray-400">
-              Aún no se han enviado vehículos a matricular.
-            </p>
-          </div>
-        ) : (
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Chasis
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Modelo
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Color
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Recepción matrícula
-                  </th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Acción
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {enviados.map((v) => {
-                  const received = v.registrationReceivedDate;
-                  const receivedStr =
-                    received && typeof received === "string"
-                      ? received
-                      : received && typeof received === "object" && "_seconds" in received
-                      ? new Date(received._seconds * 1000).toLocaleDateString("es-EC")
-                      : null;
-
-                  return (
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {pagedArribar.map((v) => (
                     <tr
                       key={v.id}
                       className="hover:bg-gray-50 transition-colors"
@@ -273,38 +241,139 @@ export default function MatriculacionPage() {
                       <td className="px-4 py-3 text-gray-900 font-medium">
                         {v.model}
                       </td>
+                      <td className="px-4 py-3 text-gray-600">{v.year}</td>
                       <td className="px-4 py-3 text-gray-600">{v.color}</td>
-                      <td className="px-4 py-3">
-                        {receivedStr ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
-                            <FileCheck size={12} />
-                            {receivedStr}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-gray-400">Pendiente</span>
-                        )}
+                      <td className="px-4 py-3 text-gray-600 text-xs">
+                        {v.sede}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        {!receivedStr && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            icon={<FileCheck size={13} />}
-                            onClick={() => {
-                              setReceiveTarget(v);
-                              setReceiveDate(new Date().toISOString().slice(0, 10));
-                            }}
-                          >
-                            Recepción
-                          </Button>
-                        )}
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          icon={<Send size={13} />}
+                          onClick={() => {
+                            setSelected(v);
+                            setDate(localToday());
+                          }}
+                        >
+                          Enviar
+                        </Button>
                       </td>
                     </tr>
-                  );
-                })}
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Pagination
+              page={pageArribar}
+              total={filteredArribar.length}
+              limit={PAGE_SIZE}
+              onChange={setPageArribar}
+            />
+          </>
+        )}
+      </div>
+
+      {/* Seguimiento de matriculación */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">
+            Pendiente recepción de matrícula
+          </h2>
+          <span className="text-xs bg-amber-50 text-amber-600 font-medium px-2 py-0.5 rounded-full">
+            {pendientes.length} pendientes
+          </span>
+        </div>
+
+        <SearchFilterBar
+          searchValue={searchChassis}
+          onSearchChange={(v) => { setSearchChassis(v); setPageTracking(1); }}
+          searchPlaceholder="Buscar por chasis..."
+          filters={[
+            {
+              label: "Estado",
+              key: "status",
+              value: filterStatus,
+              onChange: (v) => { setFilterStatus(v); setPageTracking(1); },
+              options: statusFilterOptions,
+            },
+          ]}
+        />
+
+        {loading ? (
+          <SkeletonGrid cols={1} rows={2} />
+        ) : filtered.length === 0 ? (
+          <div className="bg-white border border-gray-200 rounded-xl p-8 text-center">
+            <p className="text-sm text-gray-400">
+              {pendientes.length === 0
+                ? "Todos los vehículos tienen recepción de matrícula registrada."
+                : "No se encontraron vehículos con esos filtros."}
+            </p>
+          </div>
+        ) : (
+          <>
+          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Chasis
+                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Modelo
+                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Color
+                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Estado actual
+                  </th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Acción
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {pagedTracking.map((v) => (
+                  <tr
+                    key={v.id}
+                    className="hover:bg-gray-50 transition-colors"
+                  >
+                    <td className="px-4 py-3 font-mono text-xs text-gray-700">
+                      {v.chassis}
+                    </td>
+                    <td className="px-4 py-3 text-gray-900 font-medium">
+                      {v.model}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">{v.color}</td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={v.status} />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        icon={<FileCheck size={13} />}
+                        onClick={() => {
+                          setReceiveTarget(v);
+                          setReceiveDate(localToday());
+                        }}
+                      >
+                        Recepción
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
+          <Pagination
+            page={pageTracking}
+            total={filtered.length}
+            limit={PAGE_SIZE}
+            onChange={setPageTracking}
+          />
+        </>
         )}
       </div>
 
@@ -360,7 +429,7 @@ export default function MatriculacionPage() {
               value={date}
               onChange={setDate}
               required
-              max={new Date().toISOString().slice(0, 10)}
+              max={localToday()}
             />
 
             <p className="text-xs text-gray-400">
@@ -426,7 +495,7 @@ export default function MatriculacionPage() {
               value={receiveDate}
               onChange={setReceiveDate}
               required
-              max={new Date().toISOString().slice(0, 10)}
+              max={localToday()}
             />
 
             <p className="text-xs text-gray-400">

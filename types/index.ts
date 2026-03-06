@@ -55,6 +55,11 @@ export interface Vehicle {
   clientId?: string;
   clientPhone?: string;
   paymentMethod?: string;
+  // Reapertura
+  isReopening?: boolean;
+  reopenRequestedByName?: string;
+  reopenReason?: string;
+  reopenAccessories?: string[];
 }
 
 export interface StatusHistoryEntry {
@@ -109,6 +114,8 @@ export interface Documentation {
   vehicleInvoiceUrl?: string;
   giftEmailUrl?: string;
   accessoryInvoiceUrl?: string;
+  giftEmailUrls?: string[];
+  accessoryInvoiceUrls?: string[];
   accessories: AccessoryItem[];
   documentedBy?: string;
   documentedAt?: string;

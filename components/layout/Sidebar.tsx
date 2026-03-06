@@ -53,6 +53,9 @@ const navByRole: Record<string, NavItem[]> = {
     { href: "/dashboard/usuarios", label: "Gestión de Usuarios", icon: <Users size={18} /> },
     { href: "/dashboard/catalogs", label: "Catálogos", icon: <Database size={18} /> },
   ],
+  [RoleEnum.BODEGUERO]: [
+    { href: "/dashboard/stock", label: "Stock", icon: <Car size={18} /> },
+  ],
 };
 
 interface SidebarProps {

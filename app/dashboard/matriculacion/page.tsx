@@ -34,18 +34,23 @@ const TRACKING_STATUSES = [
 const PAGE_SIZE = 7;
 
 export default function MatriculacionPage() {
+  // POR_ARRIBAR table state
   const [porArribar, setPorArribar] = useState<Vehicle[]>([]);
-  const [enProceso, setEnProceso] = useState<Vehicle[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  // Filters for POR_ARRIBAR table
+  const [totalArribar, setTotalArribar] = useState(0);
   const [searchArribar, setSearchArribar] = useState("");
   const [pageArribar, setPageArribar] = useState(1);
+  const [loadingArribar, setLoadingArribar] = useState(true);
 
-  // Filters for tracking table
+  // Tracking table state
+  const [enProceso, setEnProceso] = useState<Vehicle[]>([]);
+  const [totalTracking, setTotalTracking] = useState(0);
   const [searchChassis, setSearchChassis] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [pageTracking, setPageTracking] = useState(1);
+  const [loadingTracking, setLoadingTracking] = useState(true);
+
+  // Keep a separate loading flag for KPIs (totals without search)
+  const [kpiCounts, setKpiCounts] = useState({ porArribar: 0, pendientes: 0, recibidos: 0 });
 
   // Modal state — Enviar a matricular
   const [selected, setSelected] = useState<Vehicle | null>(null);
@@ -57,25 +62,72 @@ export default function MatriculacionPage() {
   const [receiveDate, setReceiveDate] = useState("");
   const [savingReceive, setSavingReceive] = useState(false);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  // ── Fetch POR_ARRIBAR with server-side search + pagination ─────────────────
+  const fetchArribar = useCallback(async () => {
+    setLoadingArribar(true);
     try {
-      const [porRes, trackingRes] = await Promise.all([
-        getVehicles({ status: VehicleStatus.POR_ARRIBAR, limit: 100 }),
-        getVehicles({ status: TRACKING_STATUSES.join(","), limit: 200 }),
-      ]);
-      setPorArribar(porRes.data.data || []);
-      setEnProceso(trackingRes.data.data || []);
+      const res = await getVehicles({
+        status: VehicleStatus.POR_ARRIBAR,
+        chassis: searchArribar || undefined,
+        page: pageArribar,
+        limit: PAGE_SIZE,
+      });
+      setPorArribar(res.data.data || []);
+      setTotalArribar(res.data.total || 0);
     } catch {
-      toast.error("Error al cargar vehículos");
+      toast.error("Error al cargar vehículos por arribar");
     } finally {
-      setLoading(false);
+      setLoadingArribar(false);
     }
+  }, [searchArribar, pageArribar]);
+
+  // ── Fetch tracking (ENVIADO_A_MATRICULAR … LISTO_PARA_ENTREGA) ─────────────
+  const fetchTracking = useCallback(async () => {
+    setLoadingTracking(true);
+    try {
+      const res = await getVehicles({
+        status: TRACKING_STATUSES.join(","),
+        chassis: searchChassis || undefined,
+        page: pageTracking,
+        limit: PAGE_SIZE,
+      });
+      const all: Vehicle[] = res.data.data || [];
+      setEnProceso(all);
+      setTotalTracking(res.data.total || 0);
+    } catch {
+      toast.error("Error al cargar seguimiento");
+    } finally {
+      setLoadingTracking(false);
+    }
+  }, [searchChassis, filterStatus, pageTracking]);
+
+  // ── Fetch KPI counts (unfiltered totals for the summary cards) ─────────────
+  const fetchKpis = useCallback(async () => {
+    try {
+      const [porRes, trackRes] = await Promise.all([
+        getVehicles({ status: VehicleStatus.POR_ARRIBAR, limit: 1 }),
+        getVehicles({ status: TRACKING_STATUSES.join(","), limit: 1 }),
+      ]);
+      const trackingAll = trackRes.data.total || 0;
+      // We can't easily split pendientes/recibidos from totals without fetching all,
+      // so keep KPI as approximation from last full fetch
+      setKpiCounts((prev) => ({
+        ...prev,
+        porArribar: porRes.data.total || 0,
+        pendientes: trackingAll,
+      }));
+    } catch { /* silent */ }
   }, []);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  const fetchData = useCallback(async () => {
+    await Promise.all([fetchArribar(), fetchTracking(), fetchKpis()]);
+  }, [fetchArribar, fetchTracking, fetchKpis]);
+
+  // Each table reacts to its own filters independently
+  useEffect(() => { fetchArribar(); }, [fetchArribar]);
+  useEffect(() => { fetchTracking(); }, [fetchTracking]);
+  // KPIs only need to refresh after mutations (not on filter changes)
+  useEffect(() => { fetchKpis(); }, [fetchKpis]);
 
   const handleSend = async () => {
     if (!selected || !date) {
@@ -121,25 +173,14 @@ export default function MatriculacionPage() {
     }
   };
 
-  /* Only vehicles WITHOUT registrationReceivedDate */
+  /* Client-side split for the tracking table (server already filtered by chassis) */
   const pendientes = enProceso.filter((v) => !v.registrationReceivedDate);
-  const recibidos = enProceso.filter((v) => !!v.registrationReceivedDate);
+  const recibidos  = enProceso.filter((v) =>  !!v.registrationReceivedDate);
 
-  /* Apply search + status filter */
-  const filtered = pendientes.filter((v) => {
-    if (searchChassis && !v.chassis.toLowerCase().includes(searchChassis.toLowerCase())) return false;
-    if (filterStatus && v.status !== filterStatus) return false;
-    return true;
-  });
-
-  /* POR_ARRIBAR filtered + paginated */
-  const filteredArribar = porArribar.filter((v) =>
-    !searchArribar || v.chassis.toLowerCase().includes(searchArribar.toLowerCase())
+  /* Apply optional status filter client-side (chassis already filtered server-side) */
+  const filteredTracking = pendientes.filter((v) =>
+    !filterStatus || v.status === filterStatus
   );
-  const pagedArribar = filteredArribar.slice((pageArribar - 1) * PAGE_SIZE, pageArribar * PAGE_SIZE);
-
-  /* Tracking paginated */
-  const pagedTracking = filtered.slice((pageTracking - 1) * PAGE_SIZE, pageTracking * PAGE_SIZE);
 
   const statusFilterOptions = TRACKING_STATUSES.map((s) => ({
     value: s,
@@ -157,13 +198,13 @@ export default function MatriculacionPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
         <StatsCard
           label="Por arribar"
-          value={porArribar.length}
+          value={kpiCounts.porArribar}
           icon={<Clock size={18} />}
           color="default"
         />
         <StatsCard
           label="Pendiente recepción"
-          value={pendientes.length}
+          value={kpiCounts.pendientes}
           icon={<AlertCircle size={18} />}
           color="amber"
         />
@@ -182,7 +223,7 @@ export default function MatriculacionPage() {
             Pendientes de envío a matricular
           </h2>
           <span className="text-xs bg-gray-100 text-gray-600 font-medium px-2 py-0.5 rounded-full">
-            {porArribar.length}
+            {totalArribar}
           </span>
         </div>
 
@@ -192,13 +233,13 @@ export default function MatriculacionPage() {
           searchPlaceholder="Buscar por chasis..."
         />
 
-        {loading ? (
+        {loadingArribar ? (
           <SkeletonGrid cols={1} rows={3} />
-        ) : filteredArribar.length === 0 ? (
+        ) : porArribar.length === 0 ? (
           <div className="bg-white border border-gray-200 rounded-xl p-12 text-center">
             <Send size={32} className="mx-auto text-gray-300 mb-3" />
             <p className="text-sm text-gray-400">
-              {porArribar.length === 0
+              {totalArribar === 0
                 ? "No hay vehículos pendientes de envío a matricular."
                 : "No se encontraron vehículos con ese chasis."}
             </p>
@@ -230,31 +271,19 @@ export default function MatriculacionPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {pagedArribar.map((v) => (
-                    <tr
-                      key={v.id}
-                      className="hover:bg-gray-50 transition-colors"
-                    >
-                      <td className="px-4 py-3 font-mono text-xs text-gray-700">
-                        {v.chassis}
-                      </td>
-                      <td className="px-4 py-3 text-gray-900 font-medium">
-                        {v.model}
-                      </td>
+                  {porArribar.map((v) => (
+                    <tr key={v.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3 font-mono text-xs text-gray-700">{v.chassis}</td>
+                      <td className="px-4 py-3 text-gray-900 font-medium">{v.model}</td>
                       <td className="px-4 py-3 text-gray-600">{v.year}</td>
                       <td className="px-4 py-3 text-gray-600">{v.color}</td>
-                      <td className="px-4 py-3 text-gray-600 text-xs">
-                        {v.sede}
-                      </td>
+                      <td className="px-4 py-3 text-gray-600 text-xs">{v.sede}</td>
                       <td className="px-4 py-3 text-right">
                         <Button
                           size="sm"
                           variant="primary"
                           icon={<Send size={13} />}
-                          onClick={() => {
-                            setSelected(v);
-                            setDate(localToday());
-                          }}
+                          onClick={() => { setSelected(v); setDate(localToday()); }}
                         >
                           Enviar
                         </Button>
@@ -266,7 +295,7 @@ export default function MatriculacionPage() {
             </div>
             <Pagination
               page={pageArribar}
-              total={filteredArribar.length}
+              total={totalArribar}
               limit={PAGE_SIZE}
               onChange={setPageArribar}
             />
@@ -281,7 +310,7 @@ export default function MatriculacionPage() {
             Pendiente recepción de matrícula
           </h2>
           <span className="text-xs bg-amber-50 text-amber-600 font-medium px-2 py-0.5 rounded-full">
-            {pendientes.length} pendientes
+            {totalTracking} pendientes
           </span>
         </div>
 
@@ -300,12 +329,12 @@ export default function MatriculacionPage() {
           ]}
         />
 
-        {loading ? (
+        {loadingTracking ? (
           <SkeletonGrid cols={1} rows={2} />
-        ) : filtered.length === 0 ? (
+        ) : filteredTracking.length === 0 ? (
           <div className="bg-white border border-gray-200 rounded-xl p-8 text-center">
             <p className="text-sm text-gray-400">
-              {pendientes.length === 0
+              {totalTracking === 0
                 ? "Todos los vehículos tienen recepción de matrícula registrada."
                 : "No se encontraron vehículos con esos filtros."}
             </p>
@@ -316,48 +345,26 @@ export default function MatriculacionPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Chasis
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Modelo
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Color
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Estado actual
-                  </th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                    Acción
-                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Chasis</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Modelo</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Color</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Estado actual</th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">Acción</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {pagedTracking.map((v) => (
-                  <tr
-                    key={v.id}
-                    className="hover:bg-gray-50 transition-colors"
-                  >
-                    <td className="px-4 py-3 font-mono text-xs text-gray-700">
-                      {v.chassis}
-                    </td>
-                    <td className="px-4 py-3 text-gray-900 font-medium">
-                      {v.model}
-                    </td>
+                {filteredTracking.map((v) => (
+                  <tr key={v.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3 font-mono text-xs text-gray-700">{v.chassis}</td>
+                    <td className="px-4 py-3 text-gray-900 font-medium">{v.model}</td>
                     <td className="px-4 py-3 text-gray-600">{v.color}</td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={v.status} />
-                    </td>
+                    <td className="px-4 py-3"><StatusBadge status={v.status} /></td>
                     <td className="px-4 py-3 text-right">
                       <Button
                         size="sm"
                         variant="outline"
                         icon={<FileCheck size={13} />}
-                        onClick={() => {
-                          setReceiveTarget(v);
-                          setReceiveDate(localToday());
-                        }}
+                        onClick={() => { setReceiveTarget(v); setReceiveDate(localToday()); }}
                       >
                         Recepción
                       </Button>
@@ -369,7 +376,7 @@ export default function MatriculacionPage() {
           </div>
           <Pagination
             page={pageTracking}
-            total={filtered.length}
+            total={totalTracking}
             limit={PAGE_SIZE}
             onChange={setPageTracking}
           />

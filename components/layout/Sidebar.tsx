@@ -42,6 +42,7 @@ const navByRole: Record<string, NavItem[]> = {
     { href: "/dashboard/matriculacion", label: "Matriculación", icon: <Send size={18} /> },
     { href: "/dashboard/stock", label: "Stock", icon: <Car size={18} /> },
     { href: "/dashboard/documentacion", label: "Documentación", icon: <FileText size={18} /> },
+    { href: "/dashboard/agendamiento", label: "Agendamiento", icon: <Calendar size={18} /> },
     { href: "/dashboard/cambio-sede", label: "Cambio de Sede", icon: <ArrowLeftRight size={18} /> },
     { href: "/dashboard/cambio-concesionario", label: "Cambio de Concesionario", icon: <Building2 size={18} /> },
   ],

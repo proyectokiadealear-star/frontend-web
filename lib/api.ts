@@ -188,7 +188,7 @@ export const createAppointment = (data: {
   vehicleId: string;
   scheduledDate: string;
   scheduledTime: string;
-  assignedAdvisorUid: string;
+  assignedAdvisorId: string;
   assignedAdvisorName: string;
 }) => api.post<Appointment>("/appointments", data);
 

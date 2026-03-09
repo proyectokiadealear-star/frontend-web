@@ -152,14 +152,26 @@ export interface ServiceOrder {
 export interface Appointment {
   id: string;
   vehicleId: string;
-  vehicle?: Vehicle;
+  // Campos planos populados por el API
+  chassis?: string;
+  model?: string;
+  sede?: string;
+  clientName?: string;
+  clientId?: string;
+  status?: string;
+  // Asesor
+  assignedAdvisorId: string;
+  assignedAdvisorName: string;
+  // Fechas
   scheduledDate: string;
   scheduledTime: string;
-  assignedAdvisorUid: string;
-  assignedAdvisorName: string;
-  status?: string;
-  createdAt: string;
-  updatedAt: string;
+  createdBy?: string;
+  createdByName?: string;
+  createdAt: DateField;
+  updatedAt: DateField;
+  // Retrocompatibilidad (algunas partes del código usan vehicle?)
+  vehicle?: Vehicle;
+  assignedAdvisorUid?: string;
 }
 
 // ============================================================

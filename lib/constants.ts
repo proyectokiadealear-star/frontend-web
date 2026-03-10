@@ -3,6 +3,7 @@
 // ============================================================
 
 export const VehicleStatus = {
+  NO_FACTURADO: "NO_FACTURADO",
   POR_ARRIBAR: "POR_ARRIBAR",
   ENVIADO_A_MATRICULAR: "ENVIADO_A_MATRICULAR",
   DOCUMENTACION_PENDIENTE: "DOCUMENTACION_PENDIENTE",
@@ -19,7 +20,8 @@ export const VehicleStatus = {
   CEDIDO: "CEDIDO",
 } as const;
 
-export type VehicleStatusType = (typeof VehicleStatus)[keyof typeof VehicleStatus];
+export type VehicleStatusType =
+  (typeof VehicleStatus)[keyof typeof VehicleStatus];
 
 export const VehicleStatusLabel: Record<VehicleStatusType, string> = {
   POR_ARRIBAR: "Por Arribar",
@@ -128,7 +130,10 @@ export const AccessoryClassification = {
 export type AccessoryClassificationType =
   (typeof AccessoryClassification)[keyof typeof AccessoryClassification];
 
-export const AccessoryClassificationLabel: Record<AccessoryClassificationType, string> = {
+export const AccessoryClassificationLabel: Record<
+  AccessoryClassificationType,
+  string
+> = {
   VENDIDO: "Vendido",
   OBSEQUIADO: "Obsequiado",
   NO_APLICA: "No Aplica",
@@ -141,7 +146,8 @@ export const PaymentMethod = {
   CREDITO: "CREDITO",
 } as const;
 
-export type PaymentMethodType = (typeof PaymentMethod)[keyof typeof PaymentMethod];
+export type PaymentMethodType =
+  (typeof PaymentMethod)[keyof typeof PaymentMethod];
 
 export const PaymentMethodLabel: Record<PaymentMethodType, string> = {
   CONTADO: "Contado",

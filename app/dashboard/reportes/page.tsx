@@ -7,6 +7,7 @@ import {
   getCertification,
   getDocumentation,
   getDeliveryCeremony,
+  getSedes,
 } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
@@ -48,6 +49,19 @@ export default function ReportesPage() {
 
   const LIMIT = 20;
 
+  // Cargar sedes desde el catálogo (fuente de verdad) al montar
+  useEffect(() => {
+    getSedes()
+      .then((res) => {
+        const names = (res.data ?? [])
+          .map((s) => s.name)
+          .filter(Boolean)
+          .sort() as string[];
+        setSedes(names);
+      })
+      .catch(() => { /* silencioso, el filtro queda vacío */ });
+  }, []);
+
   const fetchVehicles = useCallback(async () => {
     setLoading(true);
     try {
@@ -62,16 +76,12 @@ export default function ReportesPage() {
       const rows: Vehicle[] = body.data ?? [];
       setVehicles(rows);
       setTotal(body.total ?? 0);
-      if (!sedes.length && rows.length) {
-        const unique = Array.from(new Set(rows.map((v) => v.sede).filter(Boolean)));
-        setSedes(unique as string[]);
-      }
     } catch {
       toast.error("Error al cargar vehículos");
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, sedeFilter, page, sedes.length]);
+  }, [search, statusFilter, sedeFilter, page]);
 
   useEffect(() => {
     setPage(1);

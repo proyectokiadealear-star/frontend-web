@@ -48,7 +48,7 @@ api.interceptors.response.use(
       }
     }
     return Promise.reject(error);
-  }
+  },
 );
 
 // ============================================================
@@ -60,8 +60,11 @@ export const authLogin = (email: string, password: string) =>
 // ============================================================
 // USERS
 // ============================================================
-export const getUsers = (params?: { role?: string; sede?: string; active?: boolean }) =>
-  api.get<UserProfile[]>("/users", { params });
+export const getUsers = (params?: {
+  role?: string;
+  sede?: string;
+  active?: boolean;
+}) => api.get<UserProfile[]>("/users", { params });
 
 export const getUser = (uid: string) => api.get<UserProfile>(`/users/${uid}`);
 
@@ -74,7 +77,12 @@ export const createUser = (data: {
 
 export const updateUser = (
   uid: string,
-  data: Partial<{ displayName: string; role: string; sede: string; active: boolean }>
+  data: Partial<{
+    displayName: string;
+    role: string;
+    sede: string;
+    active: boolean;
+  }>,
 ) => api.patch<UserProfile>(`/users/${uid}`, data);
 
 export const deleteUser = (uid: string) => api.delete(`/users/${uid}`);
@@ -88,8 +96,7 @@ export const resetPassword = (uid: string) =>
 export const getVehicles = (filters?: VehicleFilters) =>
   api.get<PaginatedResponse<Vehicle>>("/vehicles", { params: filters });
 
-export const getVehicle = (id: string) =>
-  api.get<Vehicle>(`/vehicles/${id}`);
+export const getVehicle = (id: string) => api.get<Vehicle>(`/vehicles/${id}`);
 
 export const updateVehicle = (id: string, data: Partial<Vehicle>) =>
   api.patch<Vehicle>(`/vehicles/${id}`, data);
@@ -105,13 +112,27 @@ export const createVehicle = (data: {
   year: number;
   color: string;
   sede?: string;
+  isFacturado?: boolean;
 }) => api.post<Vehicle>("/vehicles", data);
 
-export const sendToRegistration = (vehicleId: string, registrationSentDate: string) =>
-  api.patch(`/documentation/${vehicleId}/send-to-registration`, { registrationSentDate });
+export const sendToRegistration = (
+  vehicleId: string,
+  registrationSentDate: string,
+) =>
+  api.patch(`/documentation/${vehicleId}/send-to-registration`, {
+    registrationSentDate,
+  });
 
-export const receiveRegistration = (vehicleId: string, registrationReceivedDate: string) =>
-  api.patch(`/documentation/${vehicleId}/receive-registration`, { registrationReceivedDate });
+export const receiveRegistration = (
+  vehicleId: string,
+  registrationReceivedDate: string,
+) =>
+  api.patch(`/documentation/${vehicleId}/receive-registration`, {
+    registrationReceivedDate,
+  });
+
+export const billVehicle = (vehicleId: string) =>
+  api.patch(`/documentation/${vehicleId}/bill`);
 
 export const getSalePotential = (vehicleId: string) =>
   api.get<SalePotential>(`/vehicles/${vehicleId}/sale-potential`);
@@ -119,8 +140,7 @@ export const getSalePotential = (vehicleId: string) =>
 export const getSalePotentialBatch = (vehicleIds: string[]) =>
   api.post<SalePotential[]>("/vehicles/sale-potential-batch", { vehicleIds });
 
-export const getVehicleStatsBySede = () =>
-  api.get("/vehicles/stats/by-sede");
+export const getVehicleStatsBySede = () => api.get("/vehicles/stats/by-sede");
 
 export const getTodayDeliveries = () =>
   api.get<Vehicle[]>("/vehicles/stats/today-deliveries");
@@ -131,8 +151,15 @@ export const getTodayDeliveries = () =>
 export const getCertification = (vehicleId: string) =>
   api.get<Certification>(`/certifications/${vehicleId}`);
 
-export const updateCertification = (vehicleId: string, data: Partial<Certification>) =>
-  api.patch<Certification>(`/certifications/${vehicleId}`, data);
+export const createCertification = (
+  vehicleId: string,
+  data: Partial<Certification>,
+) => api.post<Certification>(`/certifications/${vehicleId}`, data);
+
+export const updateCertification = (
+  vehicleId: string,
+  data: Partial<Certification>,
+) => api.patch<Certification>(`/certifications/${vehicleId}`, data);
 
 // ============================================================
 // DOCUMENTATION
@@ -161,7 +188,11 @@ export const transferVehicle = (vehicleId: string, data: FormData) =>
 export const deleteDocumentation = (vehicleId: string) =>
   api.delete(`/documentation/${vehicleId}`);
 
-export const deleteDocumentFile = (vehicleId: string, fileType: string, index?: number) =>
+export const deleteDocumentFile = (
+  vehicleId: string,
+  fileType: string,
+  index?: number,
+) =>
   api.delete(`/documentation/${vehicleId}/files/${fileType}`, {
     params: index !== undefined ? { index } : undefined,
   });
@@ -169,8 +200,11 @@ export const deleteDocumentFile = (vehicleId: string, fileType: string, index?: 
 // ============================================================
 // SERVICE ORDERS
 // ============================================================
-export const getServiceOrders = (params?: { vehicleId?: string; status?: string; sede?: string }) =>
-  api.get<ServiceOrder[]>("/service-orders", { params });
+export const getServiceOrders = (params?: {
+  vehicleId?: string;
+  status?: string;
+  sede?: string;
+}) => api.get<ServiceOrder[]>("/service-orders", { params });
 
 export const getServiceOrder = (id: string) =>
   api.get<ServiceOrder>(`/service-orders/${id}`);
@@ -181,8 +215,11 @@ export const createServiceOrder = (vehicleId: string, orderNumber: string) =>
 // ============================================================
 // APPOINTMENTS
 // ============================================================
-export const getAppointments = (params?: { vehicleId?: string; date?: string; advisorUid?: string }) =>
-  api.get<Appointment[]>("/appointments", { params });
+export const getAppointments = (params?: {
+  vehicleId?: string;
+  date?: string;
+  advisorUid?: string;
+}) => api.get<Appointment[]>("/appointments", { params });
 
 export const createAppointment = (data: {
   vehicleId: string;
@@ -207,20 +244,26 @@ export const getDeliveryCeremony = (vehicleId: string) =>
 export const getVehicleReport = (vehicleId: string) =>
   api.get(`/reports/vehicle/${vehicleId}`);
 
-export const getAnalytics = (params?: { sede?: string; from?: string; to?: string }) =>
-  api.get("/reports/analytics", { params });
+export const getAnalytics = (params?: {
+  sede?: string;
+  from?: string;
+  to?: string;
+}) => api.get("/reports/analytics", { params });
 
 export const getBIAnalytics = (params: {
   sede?: string;
   model?: string;
   dateFrom: string;
   dateTo: string;
-}) => api.get<BIAnalyticsData>("/reports/analytics", { params: {
-  ...(params.sede ? { sede: params.sede } : {}),
-  ...(params.model ? { model: params.model } : {}),
-  dateFrom: params.dateFrom,
-  dateTo: params.dateTo,
-} });
+}) =>
+  api.get<BIAnalyticsData>("/reports/analytics", {
+    params: {
+      ...(params.sede ? { sede: params.sede } : {}),
+      ...(params.model ? { model: params.model } : {}),
+      dateFrom: params.dateFrom,
+      dateTo: params.dateTo,
+    },
+  });
 
 export type BIAnalyticsData = {
   total: number;
@@ -229,13 +272,21 @@ export type BIAnalyticsData = {
   bySede: Record<string, number>;
   byModel: Record<string, number>;
   accessories: {
-    byKey: Record<string, { VENDIDO: number; OBSEQUIADO: number; NO_APLICA: number }>;
+    byKey: Record<
+      string,
+      { VENDIDO: number; OBSEQUIADO: number; NO_APLICA: number }
+    >;
     topSold: { key: string; vendido: number }[];
     totalVendido: number;
     totalObsequiado: number;
   };
   topAsesores: {
-    ordenesGeneradas: { uid: string; name: string; sede: string; ordenes: number }[];
+    ordenesGeneradas: {
+      uid: string;
+      name: string;
+      sede: string;
+      ordenes: number;
+    }[];
     entregas: { uid: string; name: string; sede: string; entregas: number }[];
   };
 };
@@ -260,7 +311,8 @@ export const updateModel = (id: string, data: Partial<CatalogItem>) =>
   api.patch(`/catalogs/models/${id}`, data);
 export const deleteModel = (id: string) => api.delete(`/catalogs/models/${id}`);
 
-export const getConcessionaires = () => api.get<CatalogItem[]>("/catalogs/concessionaires");
+export const getConcessionaires = () =>
+  api.get<CatalogItem[]>("/catalogs/concessionaires");
 export const createConcessionaire = (data: Partial<CatalogItem>) =>
   api.post("/catalogs/concessionaires", data);
 export const updateConcessionaire = (id: string, data: Partial<CatalogItem>) =>
@@ -284,11 +336,13 @@ export const getNotifications = (params?: { read?: boolean; limit?: number }) =>
 export const markNotificationRead = (id: string) =>
   api.patch(`/notifications/${id}/read`);
 
-export const getAccessories = () => api.get<CatalogItem[]>("/catalogs/accessories");
+export const getAccessories = () =>
+  api.get<CatalogItem[]>("/catalogs/accessories");
 export const createAccessory = (data: Partial<CatalogItem>) =>
   api.post("/catalogs/accessories", data);
 export const updateAccessory = (id: string, data: Partial<CatalogItem>) =>
   api.patch(`/catalogs/accessories/${id}`, data);
-export const deleteAccessory = (id: string) => api.delete(`/catalogs/accessories/${id}`);
+export const deleteAccessory = (id: string) =>
+  api.delete(`/catalogs/accessories/${id}`);
 
 export default api;

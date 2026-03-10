@@ -1,4 +1,9 @@
-import type { VehicleStatusType, RoleEnumType, AccessoryKeyType, AccessoryClassificationType } from "@/lib/constants";
+import type {
+  VehicleStatusType,
+  RoleEnumType,
+  AccessoryKeyType,
+  AccessoryClassificationType,
+} from "@/lib/constants";
 
 // ============================================================
 // USUARIOS
@@ -60,6 +65,8 @@ export interface Vehicle {
   reopenRequestedByName?: string;
   reopenReason?: string;
   reopenAccessories?: string[];
+  // NO_FACTURADO
+  certifiedWhileNoFacturado?: boolean;
 }
 
 export interface StatusHistoryEntry {

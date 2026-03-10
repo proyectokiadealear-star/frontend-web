@@ -35,6 +35,7 @@ export default function IngresoContablePage() {
     year: "",
     color: "",
     sede: "",
+    isFacturado: true,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -105,9 +106,17 @@ export default function IngresoContablePage() {
         year: Number(form.year),
         color: form.color.toUpperCase(),
         sede: form.sede,
+        isFacturado: form.isFacturado,
       });
       toast.success("Vehículo registrado correctamente");
-      setForm({ chassis: "", model: "", year: "", color: "", sede: "" });
+      setForm({
+        chassis: "",
+        model: "",
+        year: "",
+        color: "",
+        sede: "",
+        isFacturado: true,
+      });
       setErrors({});
       fetchRecent();
     } catch (err: unknown) {
@@ -138,8 +147,8 @@ export default function IngresoContablePage() {
               </h2>
             </div>
             <p className="text-xs text-gray-400 mb-5">
-              Sin foto ni concesionario origen. Se asigna estado{" "}
-              <span className="font-medium text-gray-500">Por Arribar</span>.
+              Sin foto ni concesionario origen. El estado inicial depende de si
+              el vehículo ya tiene factura del importador.
             </p>
 
             <div className="space-y-4">
@@ -216,6 +225,25 @@ export default function IngresoContablePage() {
                   setForm((p) => ({ ...p, sede: e.target.value }))
                 }
               />
+
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.isFacturado}
+                  onChange={(e) =>
+                    setForm((p) => ({ ...p, isFacturado: e.target.checked }))
+                  }
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-500 cursor-pointer"
+                />
+                <div>
+                  <span className="text-sm font-medium text-gray-700">
+                    Vehículo facturado
+                  </span>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Desmarca si el vehículo aún no tiene factura del importador
+                  </p>
+                </div>
+              </label>
 
               <div className="pt-3 border-t border-gray-100">
                 <Button

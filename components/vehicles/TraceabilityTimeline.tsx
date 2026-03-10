@@ -8,6 +8,7 @@ interface TraceabilityTimelineProps {
 }
 
 const STATUS_DOT: Partial<Record<VehicleStatusType, string>> = {
+  NO_FACTURADO: "bg-yellow-400",
   POR_ARRIBAR: "bg-gray-400",
   ENVIADO_A_MATRICULAR: "bg-indigo-400",
   CERTIFICADO_STOCK: "bg-blue-400",
@@ -25,6 +26,7 @@ const STATUS_DOT: Partial<Record<VehicleStatusType, string>> = {
 };
 
 const STATUS_BORDER: Partial<Record<VehicleStatusType, string>> = {
+  NO_FACTURADO: "border-l-yellow-400",
   POR_ARRIBAR: "border-l-gray-300",
   ENVIADO_A_MATRICULAR: "border-l-indigo-400",
   CERTIFICADO_STOCK: "border-l-blue-400",
@@ -54,7 +56,7 @@ export function TraceabilityTimeline({ history }: TraceabilityTimelineProps) {
   }
 
   const sorted = [...history].sort(
-    (a, b) => new Date(a.changedAt).getTime() - new Date(b.changedAt).getTime()
+    (a, b) => new Date(a.changedAt).getTime() - new Date(b.changedAt).getTime(),
   );
 
   return (
@@ -66,7 +68,8 @@ export function TraceabilityTimeline({ history }: TraceabilityTimelineProps) {
         {sorted.map((entry, i) => {
           const isLast = i === sorted.length - 1;
           const dotColor = STATUS_DOT[entry.status] ?? "bg-gray-300";
-          const borderColor = STATUS_BORDER[entry.status] ?? "border-l-gray-200";
+          const borderColor =
+            STATUS_BORDER[entry.status] ?? "border-l-gray-200";
 
           return (
             <div key={entry.id ?? i} className="relative flex gap-3">
@@ -82,7 +85,9 @@ export function TraceabilityTimeline({ history }: TraceabilityTimelineProps) {
                 className={`flex-1 bg-white border border-gray-100 border-l-4 rounded-xl px-4 py-3 shadow-sm ${borderColor}`}
               >
                 <div className="flex items-start justify-between gap-2 flex-wrap">
-                  <span className={`text-sm font-semibold ${isLast ? "text-gray-900" : "text-gray-700"}`}>
+                  <span
+                    className={`text-sm font-semibold ${isLast ? "text-gray-900" : "text-gray-700"}`}
+                  >
                     {VehicleStatusLabel[entry.status] ?? entry.status}
                   </span>
                   <span className="text-xs text-gray-400 shrink-0">
@@ -92,10 +97,14 @@ export function TraceabilityTimeline({ history }: TraceabilityTimelineProps) {
                 {(entry.changedByName || entry.sede) && (
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1">
                     {entry.changedByName && (
-                      <span className="text-xs text-gray-500">{entry.changedByName}</span>
+                      <span className="text-xs text-gray-500">
+                        {entry.changedByName}
+                      </span>
                     )}
                     {entry.sede && (
-                      <span className="text-xs text-gray-400">·&nbsp;{entry.sede}</span>
+                      <span className="text-xs text-gray-400">
+                        ·&nbsp;{entry.sede}
+                      </span>
                     )}
                   </div>
                 )}

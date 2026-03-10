@@ -24,6 +24,7 @@ export type VehicleStatusType =
   (typeof VehicleStatus)[keyof typeof VehicleStatus];
 
 export const VehicleStatusLabel: Record<VehicleStatusType, string> = {
+  NO_FACTURADO: "No Facturado",
   POR_ARRIBAR: "Por Arribar",
   ENVIADO_A_MATRICULAR: "Enviado a Matricular",
   DOCUMENTACION_PENDIENTE: "Doc. Pendiente",
@@ -41,6 +42,7 @@ export const VehicleStatusLabel: Record<VehicleStatusType, string> = {
 };
 
 export const VehicleStatusColor: Record<VehicleStatusType, string> = {
+  NO_FACTURADO: "bg-yellow-50 text-yellow-700",
   POR_ARRIBAR: "bg-gray-100 text-gray-700",
   ENVIADO_A_MATRICULAR: "bg-indigo-50 text-indigo-700",
   DOCUMENTACION_PENDIENTE: "bg-amber-50 text-amber-700",

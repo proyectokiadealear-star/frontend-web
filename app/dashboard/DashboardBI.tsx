@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   ResponsiveContainer,
   BarChart,
@@ -13,8 +13,9 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { getBIAnalytics } from "@/lib/api";
+import { getBIAnalytics, getSedes } from "@/lib/api";
 import type { BIAnalyticsData } from "@/lib/api";
+import type { CatalogItem } from "@/types";
 import { VehicleStatusLabel, AccessoryLabel } from "@/lib/constants";
 import type { VehicleStatusType, AccessoryKeyType } from "@/lib/constants";
 import { RefreshCw, AlertCircle, TrendingUp, X } from "lucide-react";
@@ -193,6 +194,24 @@ export function DashboardBI() {
   const [data, setData] = useState<BIAnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  // [M6] Dynamic sedes list
+  const [sedeOptions, setSedeOptions] = useState<CatalogItem[]>([]);
+  // [Me5] Debounce ref for date inputs
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load sedes catalog once on mount [M6]
+  useEffect(() => {
+    getSedes()
+      .then((res) => setSedeOptions(res.data))
+      .catch(() => {
+        // Fallback to static list if catalog endpoint fails
+        setSedeOptions([
+          { id: "SURMOTOR", name: "SURMOTOR", code: "SURMOTOR" },
+          { id: "SHYRIS", name: "SHYRIS", code: "SHYRIS" },
+          { id: "GRANADAS_CENTENOS", name: "GRANADAS CENTENOS", code: "GRANADAS_CENTENOS" },
+        ]);
+      });
+  }, []);
 
   const fetchBI = useCallback(async () => {
     setLoading(true);
@@ -212,8 +231,15 @@ export function DashboardBI() {
     }
   }, [sede, dateFrom, dateTo, activeModel]);
 
+  // [Me5] Debounce: only trigger fetchBI 600ms after the last state change
   useEffect(() => {
-    fetchBI();
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      fetchBI();
+    }, 600);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [fetchBI]);
 
   const handleModelClick = (modelName: string) => {
@@ -321,9 +347,11 @@ export function DashboardBI() {
               className="text-xs bg-white/10 border border-white/20 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-white/30 cursor-pointer"
             >
               <option value="" className="text-gray-900">Todas las sedes</option>
-              <option value="SURMOTOR" className="text-gray-900">SURMOTOR</option>
-              <option value="SHYRIS" className="text-gray-900">SHYRIS</option>
-              <option value="GRANADAS_CENTENOS" className="text-gray-900">GRANADAS CENTENOS</option>
+              {sedeOptions.map((s) => (
+                <option key={s.code ?? s.id} value={s.code ?? s.id} className="text-gray-900">
+                  {s.name}
+                </option>
+              ))}
             </select>
 
             <input
@@ -344,7 +372,10 @@ export function DashboardBI() {
             />
 
             <button
-              onClick={fetchBI}
+              onClick={() => {
+                if (debounceRef.current) clearTimeout(debounceRef.current);
+                fetchBI();
+              }}
               disabled={loading}
               className="flex items-center gap-1.5 text-xs bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50 cursor-pointer"
             >

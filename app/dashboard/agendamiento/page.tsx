@@ -248,8 +248,17 @@ export default function AgendamientoPage() {
 
   // List tab: filter all appointments by selected date
   const listAppointments = useMemo(() => {
-    if (!listFilterDate) return appointments;
-    return appointments.filter((a) => a.scheduledDate === listFilterDate);
+    const filtered = !listFilterDate
+      ? appointments
+      : appointments.filter((a) => a.scheduledDate === listFilterDate);
+    // Sort: active (not delivered) first, then already delivered (ENTREGADO / CEDIDO) at the bottom
+    const DELIVERED_STATUSES = [VehicleStatus.ENTREGADO, VehicleStatus.CEDIDO] as string[];
+    return [...filtered].sort((a, b) => {
+      const aDelivered = DELIVERED_STATUSES.includes(a.status ?? "");
+      const bDelivered = DELIVERED_STATUSES.includes(b.status ?? "");
+      if (aDelivered !== bDelivered) return aDelivered ? 1 : -1;
+      return a.scheduledTime.localeCompare(b.scheduledTime);
+    });
   }, [appointments, listFilterDate]);
 
   return (
@@ -568,7 +577,7 @@ export default function AgendamientoPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {listAppointments.length === 0 ? (
+                 {listAppointments.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="text-center text-sm text-gray-400 py-10">
                       No hay agendamientos para este día.
@@ -576,29 +585,48 @@ export default function AgendamientoPage() {
                   </tr>
                 ) : (
                   listAppointments
-                    .sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime))
-                    .map((appt) => (
-                      <tr key={appt.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-4 py-3 font-chassis text-xs text-gray-500">
-                          {appt.chassis ?? "—"}
-                        </td>
-                        <td className="px-4 py-3 text-gray-900 font-medium">
-                          {appt.clientName ?? "—"}
-                        </td>
-                        <td className="px-4 py-3 text-gray-500">
-                          {appt.clientId ?? "—"}
-                        </td>
-                        <td className="px-4 py-3 text-gray-700">
-                          {appt.assignedAdvisorName ?? "—"}
-                        </td>
-                        <td className="px-4 py-3 text-gray-500">
-                          {appt.scheduledDate}
-                        </td>
-                        <td className="px-4 py-3 text-gray-500">
-                          {appt.scheduledTime}
-                        </td>
-                      </tr>
-                    ))
+                    .map((appt) => {
+                      const isDelivered = ([VehicleStatus.ENTREGADO, VehicleStatus.CEDIDO] as string[]).includes(
+                        appt.status ?? ""
+                      );
+                      return (
+                        <tr
+                          key={appt.id}
+                          className={cn(
+                            "transition-colors",
+                            isDelivered
+                              ? "bg-gray-50 opacity-60"
+                              : "hover:bg-gray-50"
+                          )}
+                        >
+                          <td className={cn("px-4 py-3 font-chassis text-xs", isDelivered ? "text-gray-400" : "text-gray-500")}>
+                            {appt.chassis ?? "—"}
+                          </td>
+                          <td className={cn("px-4 py-3 font-medium", isDelivered ? "text-gray-400 line-through" : "text-gray-900")}>
+                            {appt.clientName ?? "—"}
+                          </td>
+                          <td className={cn("px-4 py-3", isDelivered ? "text-gray-400" : "text-gray-500")}>
+                            {appt.clientId ?? "—"}
+                          </td>
+                          <td className={cn("px-4 py-3", isDelivered ? "text-gray-400" : "text-gray-700")}>
+                            {appt.assignedAdvisorName ?? "—"}
+                          </td>
+                          <td className={cn("px-4 py-3", isDelivered ? "text-gray-400" : "text-gray-500")}>
+                            {appt.scheduledDate}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <span className={cn("text-sm", isDelivered ? "text-gray-400" : "text-gray-500")}>
+                                {appt.scheduledTime}
+                              </span>
+                              {isDelivered && (
+                                <StatusBadge status={appt.status as import("@/lib/constants").VehicleStatusType} />
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                 )}
               </tbody>
             </table>

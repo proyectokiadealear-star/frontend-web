@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { getVehicles, getSalePotential, getSalePotentialBatch } from "@/lib/api";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { getVehicles, getSalePotential, getSalePotentialBatch, getSedes } from "@/lib/api";
+import type { CatalogItem } from "@/types";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SearchFilterBar } from "@/components/ui/SearchFilterBar";
-import { StatsCard } from "@/components/ui/StatsCard";
 import { Button } from "@/components/ui/Button";
 import { Pagination } from "@/components/ui/Pagination";
 import { SkeletonGrid } from "@/components/ui/Skeleton";
@@ -14,12 +14,14 @@ import type { Vehicle, SalePotential } from "@/types";
 import {
   TrendingUp,
   DollarSign,
-  Gift,
-  ShoppingCart,
   ChevronRight,
   Sparkles,
   Target,
   X,
+  BarChart3,
+  Zap,
+  ArrowUpRight,
+  Package,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -51,6 +53,8 @@ export default function PotencialVentaPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState(DEFAULT_STATUSES);
+  const [filterSede, setFilterSede] = useState("");
+  const [sedeOptions, setSedeOptions] = useState<{ value: string; label: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const PAGE_SIZE = 7;
 
@@ -62,12 +66,22 @@ export default function PotencialVentaPage() {
   const [potential, setPotential] = useState<SalePotential | null>(null);
   const [loadingPotential, setLoadingPotential] = useState(false);
 
+  // Load sedes catalog once
+  useEffect(() => {
+    getSedes()
+      .then((res) =>
+        setSedeOptions((res.data ?? []).map((s: CatalogItem) => ({ value: s.name, label: s.name })))
+      )
+      .catch(() => {});
+  }, []);
+
   const fetchVehicles = useCallback(async () => {
     setLoading(true);
     try {
       const res = await getVehicles({
         chassis: search || undefined,
         status: filterStatus || DEFAULT_STATUSES,
+        sede: filterSede || undefined,
         page,
         limit: PAGE_SIZE,
       });
@@ -95,7 +109,7 @@ export default function PotencialVentaPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, filterStatus, page]);
+  }, [search, filterStatus, filterSede, page]);
 
   useEffect(() => {
     fetchVehicles();
@@ -120,22 +134,14 @@ export default function PotencialVentaPage() {
     setPotential(null);
   };
 
-  // Aggregate simple stats from visible vehicles
-  const documented = vehicles.filter(
-    (v) => v.status === VehicleStatus.DOCUMENTADO || v.status === VehicleStatus.ORDEN_GENERADA
-  ).length;
-  const inInstallation = vehicles.filter(
-    (v) =>
-      v.status === VehicleStatus.ASIGNADO ||
-      v.status === VehicleStatus.EN_INSTALACION ||
-      v.status === VehicleStatus.INSTALACION_COMPLETA ||
-      v.status === VehicleStatus.REAPERTURA_OT
-  ).length;
-  const ready = vehicles.filter(
-    (v) =>
-      v.status === VehicleStatus.LISTO_PARA_ENTREGA ||
-      v.status === VehicleStatus.AGENDADO
-  ).length;
+  // Compute sales-relevant KPIs from the rateMap
+  const kpis = useMemo(() => {
+    const rates = Object.values(rateMap).filter((r): r is number => r != null);
+    const avgRate = rates.length > 0 ? rates.reduce((a, b) => a + b, 0) / rates.length : 0;
+    const highOpportunity = rates.filter((r) => r >= 40).length;
+    const lowCoverage = rates.filter((r) => r < 20).length;
+    return { avgRate, highOpportunity, lowCoverage, totalAnalyzed: rates.length };
+  }, [rateMap]);
 
   return (
     <div>
@@ -144,26 +150,58 @@ export default function PotencialVentaPage() {
         subtitle="Identifica oportunidades de venta cruzada de accesorios por vehículo"
       />
 
-      {/* KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-        <StatsCard
-          label="En documentación / OT"
-          value={documented}
-          icon={<ShoppingCart size={18} />}
-          color="blue"
-        />
-        <StatsCard
-          label="En instalación"
-          value={inInstallation}
-          icon={<Target size={18} />}
-          color="amber"
-        />
-        <StatsCard
-          label="Listos / Agendados"
-          value={ready}
-          icon={<TrendingUp size={18} />}
-          color="green"
-        />
+      {/* KPIs — focused on sales opportunity insights */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="rounded-xl border border-gray-200 bg-white p-5 flex items-start gap-4">
+          <div className="p-2.5 rounded-lg flex-shrink-0 bg-blue-100 text-blue-600">
+            <BarChart3 size={18} />
+          </div>
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              Vehículos analizados
+            </span>
+            <span className="text-2xl font-bold text-gray-900">{total}</span>
+            <span className="text-xs text-gray-400">en esta página: {vehicles.length}</span>
+          </div>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-5 flex items-start gap-4">
+          <div className="p-2.5 rounded-lg flex-shrink-0 bg-amber-100 text-amber-600">
+            <TrendingUp size={18} />
+          </div>
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              Potencial promedio
+            </span>
+            <span className="text-2xl font-bold text-gray-900">
+              {kpis.avgRate.toFixed(1)}%
+            </span>
+            <span className="text-xs text-gray-400">tasa bruta de oportunidad</span>
+          </div>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-5 flex items-start gap-4">
+          <div className="p-2.5 rounded-lg flex-shrink-0 bg-green-100 text-green-600">
+            <Zap size={18} />
+          </div>
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              Alta oportunidad
+            </span>
+            <span className="text-2xl font-bold text-gray-900">{kpis.highOpportunity}</span>
+            <span className="text-xs text-gray-400">vehículos con ≥ 40% potencial</span>
+          </div>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-5 flex items-start gap-4">
+          <div className="p-2.5 rounded-lg flex-shrink-0 bg-red-100 text-red-600">
+            <Target size={18} />
+          </div>
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+              Baja cobertura
+            </span>
+            <span className="text-2xl font-bold text-gray-900">{kpis.lowCoverage}</span>
+            <span className="text-xs text-gray-400">vehículos con &lt; 20% — priorizar</span>
+          </div>
+        </div>
       </div>
 
       <SearchFilterBar
@@ -172,7 +210,7 @@ export default function PotencialVentaPage() {
           setSearch(v);
           setPage(1);
         }}
-        searchPlaceholder="Buscar por chasis..."
+        searchPlaceholder="Buscar por chasis, modelo o cliente..."
         filters={[
           {
             label: "Estado",
@@ -184,6 +222,16 @@ export default function PotencialVentaPage() {
             },
             options: STATUS_OPTIONS,
           },
+          {
+            label: "Sede",
+            key: "sede",
+            value: filterSede,
+            onChange: (v) => {
+              setFilterSede(v);
+              setPage(1);
+            },
+            options: sedeOptions,
+          },
         ]}
       />
 
@@ -191,10 +239,15 @@ export default function PotencialVentaPage() {
       {loading ? (
         <SkeletonGrid cols={1} rows={4} />
       ) : vehicles.length === 0 ? (
-        <div className="bg-white border border-gray-200 rounded-xl p-12 text-center">
-          <Sparkles size={32} className="mx-auto text-gray-300 mb-3" />
-          <p className="text-sm text-gray-400">
-            No hay vehículos elegibles para análisis de potencial de venta.
+        <div className="bg-white border border-gray-200 rounded-xl p-16 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-4">
+            <Package size={28} className="text-gray-300" />
+          </div>
+          <p className="text-sm font-medium text-gray-600 mb-1">
+            Sin vehículos elegibles
+          </p>
+          <p className="text-xs text-gray-400 max-w-xs mx-auto">
+            No hay vehículos que coincidan con los filtros actuales para analizar potencial de venta.
           </p>
         </div>
       ) : (
@@ -203,13 +256,7 @@ export default function PotencialVentaPage() {
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                  Chasis
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                  Modelo
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                  Color
+                  Vehículo
                 </th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
                   Cliente
@@ -220,8 +267,8 @@ export default function PotencialVentaPage() {
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
                   Sede
                 </th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
-                  % Bruto
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide min-w-[160px]">
+                  Potencial bruto
                 </th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase tracking-wide">
                   Acción
@@ -229,50 +276,60 @@ export default function PotencialVentaPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {vehicles.map((v) => (
-                <tr
-                  key={v.id}
-                  className="hover:bg-gray-50 transition-colors cursor-pointer"
-                  onClick={() => openDetail(v)}
-                >
-                  <td className="px-4 py-3 font-mono text-xs text-gray-700">
-                    {v.chassis}
-                  </td>
-                  <td className="px-4 py-3 text-gray-900 font-medium">
-                    {v.model}
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">{v.color}</td>
-                  <td className="px-4 py-3 text-gray-600 text-xs">
-                    {v.clientName || "—"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <StatusBadgeInline status={v.status} />
-                  </td>
-                  <td className="px-4 py-3 text-gray-500 text-xs">
-                    {v.sede}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {rateMap[v.id] != null ? (
-                      <RatePill value={rateMap[v.id]!} />
-                    ) : (
-                      <span className="inline-block w-10 h-4 bg-gray-100 animate-pulse rounded" />
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      icon={<TrendingUp size={13} />}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openDetail(v);
-                      }}
-                    >
-                      Analizar
-                    </Button>
-                  </td>
-                </tr>
-              ))}
+              {vehicles.map((v) => {
+                const rate = rateMap[v.id];
+                return (
+                  <tr
+                    key={v.id}
+                    className="hover:bg-gray-50/80 transition-colors cursor-pointer group"
+                    onClick={() => openDetail(v)}
+                  >
+                    <td className="px-4 py-3">
+                      <p className="text-sm font-medium text-gray-900 leading-tight">
+                        {v.model}{" "}
+                        <span className="text-gray-400 font-normal">· {v.color}</span>
+                      </p>
+                      <p className="text-[11px] text-gray-400 font-mono mt-0.5">
+                        {v.chassis}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600 text-xs">
+                      {v.clientName || (
+                        <span className="text-gray-300 italic">Sin asignar</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusBadgeInline status={v.status} />
+                    </td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">
+                      {v.sede}
+                    </td>
+                    <td className="px-4 py-3">
+                      {rate != null ? (
+                        <RateBarInline value={rate} />
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-2 bg-gray-100 animate-pulse rounded-full max-w-[100px]" />
+                          <span className="w-8 h-4 bg-gray-100 animate-pulse rounded" />
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        icon={<ArrowUpRight size={13} />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDetail(v);
+                        }}
+                      >
+                        Ver detalle
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -284,7 +341,7 @@ export default function PotencialVentaPage() {
       <Modal
         open={!!selected}
         onClose={closeDetail}
-        title="Potencial de Venta"
+        title="Análisis de Potencial"
         size="lg"
         footer={
           <div className="flex justify-end">
@@ -297,17 +354,21 @@ export default function PotencialVentaPage() {
         {selected && (
           <div className="space-y-6">
             {/* Vehicle header */}
-            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 flex items-center justify-between">
+            <div className="bg-gradient-to-r from-gray-50 to-white border border-gray-200 rounded-xl p-5 flex items-center justify-between">
               <div>
-                <p className="text-base font-semibold text-gray-900">
-                  {selected.model} — {selected.color}
+                <p className="text-lg font-semibold text-gray-900">
+                  {selected.model}
+                  <span className="text-gray-400 font-normal text-base ml-2">
+                    {selected.color}
+                  </span>
                 </p>
-                <p className="text-xs text-gray-500 font-mono mt-0.5">
+                <p className="text-xs text-gray-400 font-mono mt-1">
                   {selected.chassis}
                 </p>
                 {selected.clientName && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Cliente: {selected.clientName}
+                  <p className="text-sm text-gray-600 mt-1.5 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                    {selected.clientName}
                   </p>
                 )}
               </div>
@@ -316,39 +377,52 @@ export default function PotencialVentaPage() {
 
             {loadingPotential ? (
               <div className="space-y-3">
-                <div className="h-24 bg-gray-100 animate-pulse rounded-xl" />
-                <div className="h-40 bg-gray-100 animate-pulse rounded-xl" />
+                <div className="h-28 bg-gray-100 animate-pulse rounded-xl" />
+                <div className="h-44 bg-gray-100 animate-pulse rounded-xl" />
               </div>
             ) : potential ? (
               <>
-                {/* Rate gauges */}
-                <div className="grid grid-cols-3 gap-4">
-                  <RateCard
-                    label="Tasa actual"
-                    value={potential.currentSaleRate}
-                    sub={`${potential.sold} vendidos + ${potential.gifted} obsequiados`}
-                    color="blue"
-                  />
-                  <RateCard
-                    label="Potencial bruto"
-                    value={potential.potentialSaleRate}
-                    sub={`${potential.notApplicable} accesorios sin asignar`}
-                    color="amber"
-                  />
-                  <RateCard
-                    label="Potencial ponderado"
-                    value={potential.weightedPotentialRate}
-                    sub="Basado en patrones históricos"
-                    color="green"
-                  />
+                {/* Circular gauge + rate cards */}
+                <div className="grid grid-cols-[auto_1fr] gap-5">
+                  {/* Circular gauge */}
+                  <div className="flex flex-col items-center justify-center">
+                    <PotentialGauge value={potential.weightedPotentialRate} />
+                    <p className="text-[10px] text-gray-400 mt-1.5 text-center font-medium uppercase tracking-wide">
+                      Potencial ponderado
+                    </p>
+                  </div>
+                  {/* Rate cards */}
+                  <div className="grid grid-rows-3 gap-2.5">
+                    <RateCard
+                      label="Tasa actual de venta"
+                      value={potential.currentSaleRate}
+                      sub={`${potential.sold} vendidos + ${potential.gifted} obsequiados`}
+                      color="blue"
+                    />
+                    <RateCard
+                      label="Potencial bruto"
+                      value={potential.potentialSaleRate}
+                      sub={`${potential.notApplicable} accesorios sin asignar`}
+                      color="amber"
+                    />
+                    <RateCard
+                      label="Potencial ponderado"
+                      value={potential.weightedPotentialRate}
+                      sub="Basado en patrones históricos"
+                      color="green"
+                    />
+                  </div>
                 </div>
 
-                {/* Donut-style summary */}
-                <div className="bg-white border border-gray-200 rounded-xl p-4">
-                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
-                    Distribución de accesorios ({potential.totalAccessories} base)
+                {/* Accessory distribution bar */}
+                <div className="bg-white border border-gray-200 rounded-xl p-5">
+                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4">
+                    Distribución de accesorios
+                    <span className="ml-1.5 text-gray-400 normal-case font-normal">
+                      ({potential.totalAccessories} en total)
+                    </span>
                   </h4>
-                  <div className="flex items-center gap-3 mb-3">
+                  <div className="flex items-center gap-3 mb-4">
                     <BarSegment
                       sold={potential.sold}
                       gifted={potential.gifted}
@@ -356,76 +430,102 @@ export default function PotencialVentaPage() {
                       total={potential.totalAccessories}
                     />
                   </div>
-                  <div className="flex items-center gap-6 text-xs text-gray-500">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-                      Vendidos ({potential.sold})
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-violet-500" />
-                      Obsequiados ({potential.gifted})
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2.5 h-2.5 rounded-full bg-gray-200" />
-                      Sin asignar ({potential.notApplicable})
-                    </span>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="flex items-center gap-2 bg-blue-50/50 rounded-lg px-3 py-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-blue-500 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-blue-700">{potential.sold}</p>
+                        <p className="text-[10px] text-blue-500">Vendidos</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 bg-violet-50/50 rounded-lg px-3 py-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-violet-500 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-violet-700">{potential.gifted}</p>
+                        <p className="text-[10px] text-violet-500">Obsequiados</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-gray-300 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-gray-600">{potential.notApplicable}</p>
+                        <p className="text-[10px] text-gray-400">Sin asignar</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 {/* High potential items */}
                 {potential.highPotentialItems.length > 0 ? (
-                  <div className="bg-white border border-gray-200 rounded-xl p-4">
-                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                  <div className="bg-white border border-gray-200 rounded-xl p-5">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4 flex items-center gap-1.5">
                       <Sparkles size={14} className="text-amber-500" />
-                      Oportunidades de venta
+                      Oportunidades detectadas
+                      <span className="ml-auto text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full text-[10px] font-bold normal-case">
+                        {potential.highPotentialItems.length} accesorio{potential.highPotentialItems.length > 1 ? "s" : ""}
+                      </span>
                     </h4>
                     <div className="space-y-2">
                       {potential.highPotentialItems.map((item) => {
                         const label =
                           AccessoryLabel[item.key.toUpperCase() as AccessoryKeyType] ||
                           item.key;
+                        const probColor =
+                          item.probability >= 70
+                            ? "bg-green-100 text-green-700 border-green-200"
+                            : item.probability >= 40
+                            ? "bg-amber-100 text-amber-700 border-amber-200"
+                            : "bg-red-50 text-red-600 border-red-200";
                         return (
                           <div
                             key={item.key}
-                            className="flex items-center gap-3 p-3 rounded-lg bg-gradient-to-r from-amber-50/60 to-transparent border border-amber-100"
+                            className="flex items-center gap-3 p-3.5 rounded-xl bg-gradient-to-r from-amber-50/40 via-white to-white border border-amber-100/80 hover:border-amber-200 transition-colors"
                           >
-                            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
-                              <span className="text-sm font-bold text-amber-700">
+                            <div
+                              className={`flex-shrink-0 w-11 h-11 rounded-xl border flex items-center justify-center ${probColor}`}
+                            >
+                              <span className="text-xs font-bold">
                                 {item.probability}%
                               </span>
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-900">
+                              <p className="text-sm font-semibold text-gray-900">
                                 {label}
                               </p>
-                              <p className="text-xs text-gray-500 truncate">
+                              <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">
                                 {item.reason}
                               </p>
                             </div>
-                            <ChevronRight
-                              size={14}
-                              className="text-gray-300 flex-shrink-0"
-                            />
+                            <div className="flex-shrink-0 flex items-center gap-1 text-[10px] text-amber-600 font-medium uppercase tracking-wide">
+                              <DollarSign size={11} />
+                              Oportunidad
+                            </div>
                           </div>
                         );
                       })}
                     </div>
                   </div>
                 ) : (
-                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 text-center">
-                    <p className="text-sm text-gray-400">
-                      No se identificaron oportunidades de venta adicionales para este
-                      vehículo.
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-8 text-center">
+                    <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center mx-auto mb-3">
+                      <Sparkles size={18} className="text-gray-300" />
+                    </div>
+                    <p className="text-sm text-gray-500 font-medium">
+                      Sin oportunidades adicionales
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Este vehículo tiene buena cobertura de accesorios.
                     </p>
                   </div>
                 )}
               </>
             ) : (
-              <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
+              <div className="bg-red-50 border border-red-200 rounded-xl p-8 text-center">
                 <X size={24} className="mx-auto text-red-400 mb-2" />
-                <p className="text-sm text-red-600">
+                <p className="text-sm text-red-600 font-medium">
                   No se pudo cargar el potencial de venta.
                 </p>
+                <p className="text-xs text-red-400 mt-1">Intenta nuevamente más tarde.</p>
               </div>
             )}
           </div>
@@ -437,20 +537,33 @@ export default function PotencialVentaPage() {
 
 /* ─── Sub-components ─────────────────────────────────────── */
 
-function RatePill({ value }: { value: number }) {
+/** Inline bar + percentage shown in the main table */
+function RateBarInline({ value }: { value: number }) {
   const pct = Math.round(value);
-  const color =
+  const barColor =
     pct >= 50
-      ? "bg-green-50 text-green-700"
+      ? "bg-green-500"
       : pct >= 25
-      ? "bg-amber-50 text-amber-700"
-      : "bg-red-50 text-red-700";
+      ? "bg-amber-400"
+      : "bg-red-400";
+  const textColor =
+    pct >= 50
+      ? "text-green-700"
+      : pct >= 25
+      ? "text-amber-700"
+      : "text-red-600";
   return (
-    <span
-      className={`inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full ${color}`}
-    >
-      {pct}%
-    </span>
+    <div className="flex items-center gap-2.5">
+      <div className="flex-1 h-2 rounded-full bg-gray-100 overflow-hidden max-w-[100px]">
+        <div
+          className={`h-full rounded-full ${barColor} transition-all duration-500`}
+          style={{ width: `${Math.min(pct, 100)}%` }}
+        />
+      </div>
+      <span className={`text-xs font-bold tabular-nums w-8 text-right ${textColor}`}>
+        {pct}%
+      </span>
+    </div>
   );
 }
 
@@ -486,6 +599,46 @@ function StatusBadgeInline({ status }: { status: string }) {
   );
 }
 
+/** SVG circular gauge for the modal */
+function PotentialGauge({ value }: { value: number }) {
+  const pct = Math.min(Math.round(value), 100);
+  const r = 42;
+  const circumference = 2 * Math.PI * r;
+  const offset = circumference - (pct / 100) * circumference;
+  const color =
+    pct >= 50 ? "stroke-green-500" : pct >= 25 ? "stroke-amber-400" : "stroke-red-400";
+
+  return (
+    <div className="relative w-28 h-28">
+      <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+        <circle
+          cx="50"
+          cy="50"
+          r={r}
+          fill="none"
+          stroke="#f3f4f6"
+          strokeWidth="8"
+        />
+        <circle
+          cx="50"
+          cy="50"
+          r={r}
+          fill="none"
+          className={color}
+          strokeWidth="8"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          style={{ transition: "stroke-dashoffset 0.8s ease" }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-xl font-bold text-gray-900">{pct}%</span>
+      </div>
+    </div>
+  );
+}
+
 function RateCard({
   label,
   value,
@@ -497,22 +650,19 @@ function RateCard({
   sub: string;
   color: "blue" | "amber" | "green";
 }) {
-  const ring = {
-    blue: "border-blue-200 text-blue-700",
-    amber: "border-amber-200 text-amber-700",
-    green: "border-green-200 text-green-700",
-  }[color];
-  const bg = {
-    blue: "bg-blue-50",
-    amber: "bg-amber-50",
-    green: "bg-green-50",
+  const styles = {
+    blue: "border-blue-100 bg-blue-50/50 text-blue-700",
+    amber: "border-amber-100 bg-amber-50/50 text-amber-700",
+    green: "border-green-100 bg-green-50/50 text-green-700",
   }[color];
 
   return (
-    <div className={`rounded-xl border ${ring} ${bg} p-4 text-center`}>
-      <p className="text-2xl font-bold">{value.toFixed(1)}%</p>
-      <p className="text-xs font-medium mt-0.5 opacity-80">{label}</p>
-      <p className="text-[10px] mt-1 opacity-60">{sub}</p>
+    <div className={`rounded-lg border ${styles} px-4 py-2.5 flex items-center justify-between`}>
+      <div>
+        <p className="text-xs font-medium opacity-80">{label}</p>
+        <p className="text-[10px] opacity-60 mt-0.5">{sub}</p>
+      </div>
+      <p className="text-lg font-bold ml-3">{value.toFixed(1)}%</p>
     </div>
   );
 }
@@ -533,22 +683,22 @@ function BarSegment({
   const pNa = total > 0 ? (na / total) * 100 : 0;
 
   return (
-    <div className="w-full h-3 rounded-full bg-gray-100 overflow-hidden flex">
+    <div className="w-full h-3.5 rounded-full bg-gray-100 overflow-hidden flex">
       {pSold > 0 && (
         <div
-          className="h-full bg-blue-500 transition-all"
+          className="h-full bg-blue-500 transition-all duration-500"
           style={{ width: `${pSold}%` }}
         />
       )}
       {pGifted > 0 && (
         <div
-          className="h-full bg-violet-500 transition-all"
+          className="h-full bg-violet-500 transition-all duration-500"
           style={{ width: `${pGifted}%` }}
         />
       )}
       {pNa > 0 && (
         <div
-          className="h-full bg-gray-200 transition-all"
+          className="h-full bg-gray-200 transition-all duration-500"
           style={{ width: `${pNa}%` }}
         />
       )}

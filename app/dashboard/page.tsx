@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { RoleEnum } from "@/lib/constants";
 import { JefeDashboard } from "./JefeDashboard";
 import { DocumentacionDashboard } from "./DocumentacionDashboard";
+import { AsesorLiderDashboard } from "./AsesorLiderDashboard";
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -27,6 +28,10 @@ export default function DashboardPage() {
     // BODEGUERO has no dashboard — redirect to stock directly via layout
     // The sidebar already points to /dashboard/stock as the only entry
     return null;
+  }
+
+  if (user.role === RoleEnum.ASESOR || user.role === RoleEnum.LIDER_TECNICO) {
+    return <AsesorLiderDashboard />;
   }
 
   // JEFE_TALLER and SOPORTE

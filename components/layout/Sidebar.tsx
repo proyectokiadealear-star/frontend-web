@@ -57,62 +57,92 @@ const navByRole: Record<string, NavItem[]> = {
   [RoleEnum.BODEGUERO]: [
     { href: "/dashboard/stock", label: "Stock", icon: <Car size={18} /> },
   ],
+  [RoleEnum.ASESOR]: [
+    { href: "/dashboard", label: "Inicio", icon: <LayoutDashboard size={18} /> },
+    { href: "/dashboard/stock", label: "Stock", icon: <Car size={18} /> },
+    { href: "/dashboard/agendamiento", label: "Agendamiento", icon: <Calendar size={18} /> },
+  ],
+  [RoleEnum.LIDER_TECNICO]: [
+    { href: "/dashboard", label: "Inicio", icon: <LayoutDashboard size={18} /> },
+    { href: "/dashboard/stock", label: "Stock", icon: <Car size={18} /> },
+    { href: "/dashboard/agendamiento", label: "Agendamiento", icon: <Calendar size={18} /> },
+  ],
 };
 
 interface SidebarProps {
   role: RoleEnumType;
   collapsed: boolean;
   onToggle: () => void;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
-export function Sidebar({ role, collapsed, onToggle }: SidebarProps) {
+export function Sidebar({ role, collapsed, onToggle, mobileOpen = false, onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const items = navByRole[role] ?? navByRole[RoleEnum.JEFE_TALLER];
 
   return (
-    <aside
-      className={cn(
-        "h-full bg-white border-r border-gray-200 flex flex-col transition-all duration-200",
-        collapsed ? "w-16" : "w-60"
+    <>
+      {/* ── Mobile backdrop ── */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+          onClick={onMobileClose}
+        />
       )}
-    >
-      {/* Nav items */}
-      <nav className="flex-1 py-4 px-2 space-y-0.5 overflow-y-auto">
-        {items.map((item) => {
-          const isActive =
-            item.href === "/dashboard"
-              ? pathname === "/dashboard"
-              : pathname.startsWith(item.href);
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
-                isActive
-                  ? "bg-gray-900 text-white"
-                  : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-              )}
-              title={collapsed ? item.label : undefined}
-            >
-              <span className="flex-shrink-0">{item.icon}</span>
-              {!collapsed && <span className="truncate">{item.label}</span>}
-            </Link>
-          );
-        })}
-      </nav>
+      {/* ── Sidebar panel ── */}
+      <aside
+        className={cn(
+          // Desktop: static, collapsible
+          "h-full bg-white border-r border-gray-200 flex flex-col transition-all duration-200",
+          // Desktop width
+          "md:relative md:translate-x-0",
+          collapsed ? "md:w-16" : "md:w-60",
+          // Mobile: fixed drawer overlay
+          "fixed inset-y-0 left-0 z-50 w-64 md:z-auto",
+          mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        )}
+      >
+        {/* Nav items */}
+        <nav className="flex-1 py-4 px-2 space-y-0.5 overflow-y-auto">
+          {items.map((item) => {
+            const isActive =
+              item.href === "/dashboard"
+                ? pathname === "/dashboard"
+                : pathname.startsWith(item.href);
 
-      {/* Toggle button */}
-      <div className="p-2 border-t border-gray-200">
-        <button
-          onClick={onToggle}
-          className="w-full flex items-center justify-center p-2 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors cursor-pointer"
-          aria-label={collapsed ? "Expandir sidebar" : "Colapsar sidebar"}
-        >
-          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-        </button>
-      </div>
-    </aside>
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onMobileClose}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                  isActive
+                    ? "bg-gray-900 text-white"
+                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                )}
+                title={collapsed ? item.label : undefined}
+              >
+                <span className="flex-shrink-0">{item.icon}</span>
+                <span className={cn("truncate", collapsed ? "md:hidden" : "")}>{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* Toggle button — desktop only */}
+        <div className="hidden md:block p-2 border-t border-gray-200">
+          <button
+            onClick={onToggle}
+            className="w-full flex items-center justify-center p-2 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors cursor-pointer"
+            aria-label={collapsed ? "Expandir sidebar" : "Colapsar sidebar"}
+          >
+            {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          </button>
+        </div>
+      </aside>
+    </>
   );
 }

@@ -9,6 +9,7 @@ import {
   updateAppointment,
   getUsers,
 } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -82,6 +83,8 @@ const ACTIVE_STATUSES = new Set([
 ]);
 
 export default function AgendamientoPage() {
+  const { user } = useAuth();
+  const isReadOnly = user?.role === RoleEnum.ASESOR || user?.role === RoleEnum.LIDER_TECNICO;
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [readyVehicles, setReadyVehicles] = useState<Vehicle[]>([]);
   const [advisors, setAdvisors] = useState<UserProfile[]>([]);
@@ -269,7 +272,7 @@ export default function AgendamientoPage() {
       />
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-200 mb-6">
+      <div className="flex overflow-x-auto border-b border-gray-200 mb-6 -mx-1 px-1">
         {[
           { key: "calendar", label: "Calendario" },
           { key: "pending", label: "Pendientes de agendar" },
@@ -278,7 +281,7 @@ export default function AgendamientoPage() {
           <button
             key={t.key}
             onClick={() => setTab(t.key as typeof tab)}
-            className={`px-4 py-2.5 text-sm font-medium transition-colors cursor-pointer ${
+            className={`px-4 py-2.5 text-sm font-medium transition-colors cursor-pointer whitespace-nowrap ${
               tab === t.key
                 ? "border-b-2 border-gray-900 text-gray-900"
                 : "text-gray-500 hover:text-gray-700"
@@ -341,7 +344,7 @@ export default function AgendamientoPage() {
           </div>
 
           {/* ── Calendar + side panel ───────────────────────────────────── */}
-          <div className="flex gap-5">
+          <div className="flex flex-col lg:flex-row gap-5">
             {/* Calendar grid */}
             <div className="flex-1 bg-white border border-gray-200 rounded-2xl overflow-hidden">
               {/* Month header */}
@@ -415,9 +418,10 @@ export default function AgendamientoPage() {
                             {appts.slice(0, 2).map((appt) => (
                               <div
                                 key={appt.id}
-                                onClick={(e) => { e.stopPropagation(); openEdit(appt); }}
+                                onClick={(e) => { e.stopPropagation(); if (!isReadOnly) openEdit(appt); }}
                                 className={cn(
-                                  "px-1.5 py-0.5 rounded text-white text-[10px] font-medium cursor-pointer hover:opacity-80 transition-opacity",
+                                  "px-1.5 py-0.5 rounded text-white text-[10px] font-medium hover:opacity-80 transition-opacity",
+                                  isReadOnly ? "cursor-default" : "cursor-pointer",
                                   colorForAdvisor(appt.assignedAdvisorId)
                                 )}
                                 title={`${appt.scheduledTime} · ${appt.model ?? "Vehículo"}${appt.clientName ? ` · ${appt.clientName}` : ""}`}
@@ -450,7 +454,7 @@ export default function AgendamientoPage() {
             </div>
 
             {/* ── Side panel ────────────────────────────────────────────── */}
-            <div className="w-80 shrink-0">
+            <div className="w-full lg:w-80 shrink-0">
               {selectedDay ? (
                 <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden h-fit">
                   <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
@@ -482,6 +486,7 @@ export default function AgendamientoPage() {
                             key={appt.id}
                             appt={appt}
                             onEdit={() => openEdit(appt)}
+                            isReadOnly={isReadOnly}
                           />
                         ))}
                     </div>
@@ -530,9 +535,11 @@ export default function AgendamientoPage() {
                   </div>
                   <div className="flex items-center justify-between">
                     <StatusBadge status={v.status} />
-                    <Button size="sm" icon={<Plus size={12} />} onClick={() => openCreate(v)}>
-                      Agendar
-                    </Button>
+                    {!isReadOnly && (
+                      <Button size="sm" icon={<Plus size={12} />} onClick={() => openCreate(v)}>
+                        Agendar
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -565,7 +572,8 @@ export default function AgendamientoPage() {
 
           {/* Table */}
           <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[580px] text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
                   <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">VIN / Chasis</th>
@@ -630,6 +638,7 @@ export default function AgendamientoPage() {
                 )}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       )}
@@ -708,9 +717,11 @@ export default function AgendamientoPage() {
 function AppointmentCard({
   appt,
   onEdit,
+  isReadOnly = false,
 }: {
   appt: Appointment;
   onEdit: () => void;
+  isReadOnly?: boolean;
 }) {
   return (
     <div className="px-4 py-3">
@@ -772,12 +783,14 @@ function AppointmentCard({
           )}
         </div>
 
-        <button
-          onClick={onEdit}
-          className="text-[10px] text-blue-600 hover:text-blue-800 font-medium shrink-0 cursor-pointer mt-0.5"
-        >
-          Editar
-        </button>
+        {!isReadOnly && (
+          <button
+            onClick={onEdit}
+            className="text-[10px] text-blue-600 hover:text-blue-800 font-medium shrink-0 cursor-pointer mt-0.5"
+          >
+            Editar
+          </button>
+        )}
       </div>
     </div>
   );

@@ -195,7 +195,8 @@ export default function ReportesPage() {
             ))}
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[600px] text-sm">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200 text-left text-xs text-gray-500 uppercase tracking-wider">
                 <th className="px-4 py-3">Chasis</th>
@@ -254,6 +255,7 @@ export default function ReportesPage() {
               )}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

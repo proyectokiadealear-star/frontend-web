@@ -3,13 +3,17 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { getUserInitials } from "@/lib/utils";
 import { RoleLabel } from "@/lib/constants";
-import { LogOut, ChevronDown } from "lucide-react";
+import { LogOut, ChevronDown, Menu } from "lucide-react";
 import { useState } from "react";
 import toast from "react-hot-toast";
 import { useRouter } from "next/navigation";
 import { NotificationBell } from "@/components/ui/NotificationBell";
 
-export function Header() {
+interface HeaderProps {
+  onMenuClick?: () => void;
+}
+
+export function Header({ onMenuClick }: HeaderProps) {
   const { user, logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const router = useRouter();
@@ -24,15 +28,27 @@ export function Header() {
   };
 
   return (
-    <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-5 flex-shrink-0 z-10">
-      {/* Logo */}
-      <div className="flex items-center gap-2.5">
-        <div className="w-7 h-7 bg-gray-900 rounded-sm flex items-center justify-center">
-          <span className="text-white text-xs font-bold leading-none">K</span>
+    <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-5 flex-shrink-0 z-10">
+      {/* Left: hamburger (mobile) + logo */}
+      <div className="flex items-center gap-3">
+        {/* Hamburger — only on mobile */}
+        <button
+          onClick={onMenuClick}
+          className="md:hidden p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors"
+          aria-label="Abrir menú"
+        >
+          <Menu size={20} />
+        </button>
+
+        {/* Logo */}
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 bg-gray-900 rounded-sm flex items-center justify-center">
+            <span className="text-white text-xs font-bold leading-none">K</span>
+          </div>
+          <span className="font-bold text-base text-gray-900 tracking-tight">
+            KIA Dealer
+          </span>
         </div>
-        <span className="font-bold text-base text-gray-900 tracking-tight">
-          KIA Dealer
-        </span>
       </div>
 
       {/* Right: notifications + user menu */}

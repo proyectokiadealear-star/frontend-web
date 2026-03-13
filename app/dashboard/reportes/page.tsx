@@ -179,7 +179,7 @@ export default function ReportesPage() {
             value: sedeFilter,
             options: [
               { value: "", label: "Todas las sedes" },
-              ...sedes.map((s) => ({ value: s, label: s })),
+              ...sedes.map((s) => ({ value: s.replace(/\s+/g, "_"), label: s })),
             ],
             onChange: setSedeFilter,
           },

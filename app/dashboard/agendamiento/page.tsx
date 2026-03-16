@@ -249,11 +249,16 @@ export default function AgendamientoPage() {
     .filter(([d]) => d.startsWith(thisMonthPrefix))
     .reduce((sum, [, arr]) => sum + arr.length, 0);
 
-  // List tab: filter all appointments by selected date
+  // List tab filter: sede
+  const [listFilterSede, setListFilterSede] = useState("");
+
+  // List tab: filter all appointments by selected date + sede
   const listAppointments = useMemo(() => {
-    const filtered = !listFilterDate
-      ? appointments
-      : appointments.filter((a) => a.scheduledDate === listFilterDate);
+    const filtered = appointments.filter((a) => {
+      if (listFilterDate && a.scheduledDate !== listFilterDate) return false;
+      if (listFilterSede && a.sede !== listFilterSede) return false;
+      return true;
+    });
     // Sort: active (not delivered) first, then already delivered (ENTREGADO / CEDIDO) at the bottom
     const DELIVERED_STATUSES = [VehicleStatus.ENTREGADO, VehicleStatus.CEDIDO] as string[];
     return [...filtered].sort((a, b) => {
@@ -262,7 +267,7 @@ export default function AgendamientoPage() {
       if (aDelivered !== bDelivered) return aDelivered ? 1 : -1;
       return a.scheduledTime.localeCompare(b.scheduledTime);
     });
-  }, [appointments, listFilterDate]);
+  }, [appointments, listFilterDate, listFilterSede]);
 
   return (
     <div>
@@ -553,8 +558,8 @@ export default function AgendamientoPage() {
       ) : (
         /* ── List tab ─────────────────────────────────────────────────── */
         <div className="space-y-4">
-          {/* Date filter */}
-          <div className="flex items-center gap-3">
+          {/* Filters */}
+          <div className="flex flex-wrap items-center gap-3">
             <div className="w-52">
               <DateInput
                 label=""
@@ -562,11 +567,28 @@ export default function AgendamientoPage() {
                 onChange={(v) => setListFilterDate(v)}
               />
             </div>
+            {/* Sede filter */}
+            <div className="flex items-center gap-2">
+              <MapPin size={15} className="text-gray-400 shrink-0" />
+              <select
+                value={listFilterSede}
+                onChange={(e) => setListFilterSede(e.target.value)}
+                className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900 cursor-pointer"
+              >
+                <option value="">Todas las sedes</option>
+                {sedes.map((s) => (
+                  <option key={s.id} value={s.code || s.name}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <span className="text-sm text-gray-500">
               {listAppointments.length} agendado{listAppointments.length !== 1 ? "s" : ""}
               {listFilterDate
                 ? ` · ${new Date(listFilterDate + "T00:00:00").toLocaleDateString("es-EC", { weekday: "long", day: "numeric", month: "long" })}`
                 : ""}
+              {listFilterSede ? ` · ${listFilterSede}` : ""}
             </span>
           </div>
 

@@ -7,7 +7,8 @@ import React, {
   useState,
   useCallback,
 } from "react";
-import { authLogin } from "@/lib/api";
+import { authLogin, authLogout } from "@/lib/api";
+import { STORAGE_TOKEN_KEY, STORAGE_REFRESH_KEY, STORAGE_USER_KEY } from "@/lib/api";
 import type { RoleEnumType } from "@/lib/constants";
 
 interface AuthUser {
@@ -33,8 +34,9 @@ const AuthContext = createContext<AuthContextValue>({
   logout: async () => {},
 });
 
-const STORAGE_KEY = "kia_user";
-const TOKEN_KEY = "kia_token";
+const STORAGE_KEY = STORAGE_USER_KEY;
+const TOKEN_KEY = STORAGE_TOKEN_KEY;
+const REFRESH_KEY = STORAGE_REFRESH_KEY;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -70,6 +72,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       (data as Record<string, string>).id_token ||
       "";
 
+    const refreshToken: string =
+      (data as Record<string, string>).refreshToken ?? "";
+
     if (!token) {
       console.error("[AuthContext] No se encontró token en la respuesta:", Object.keys(data));
       throw new Error("El servidor no devolvió un token de autenticación");
@@ -85,14 +90,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     localStorage.setItem(TOKEN_KEY, token);
+    if (refreshToken) localStorage.setItem(REFRESH_KEY, refreshToken);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(authUser));
     setUser(authUser);
   }, []);
 
   const logout = useCallback(async () => {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(STORAGE_KEY);
-    setUser(null);
+    try {
+      const refreshToken = localStorage.getItem(REFRESH_KEY);
+      if (refreshToken) await authLogout(refreshToken);
+    } catch {
+      // best-effort: el backend puede estar caído o el token ya venció
+    } finally {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(REFRESH_KEY);
+      localStorage.removeItem(STORAGE_KEY);
+      setUser(null);
+    }
   }, []);
 
   return (

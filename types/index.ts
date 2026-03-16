@@ -249,6 +249,37 @@ export interface PaginatedResponse<T> {
   total: number;
   page: number;
   limit: number;
+  totalPages: number;
+}
+
+// ============================================================
+// CALL CENTER — Dashboard Centro de Llamadas
+// ============================================================
+export interface CallCenterVehicle {
+  id: string;
+  chasis: string;
+  modelo: string;
+  color: string;
+  año: number;
+  sede: string;
+  status: string;
+  propietario: {
+    nombre: string;
+    cedula: string;
+    telefono: string;
+    celular: string;
+  };
+  accessories: Array<{ key: string; classification: string | null }>;
+}
+
+export type Prioridad = "ALTA" | "MEDIA" | "BAJA";
+export type Oportunidad = "AMBOS" | "SOLO_SEGURO" | "SOLO_TELEMETRIA" | "NINGUNA";
+
+export interface ClassifiedVehicle extends CallCenterVehicle {
+  tieneSeguro: boolean;
+  tieneTelemetria: boolean;
+  prioridad: Prioridad;
+  oportunidad: Oportunidad;
 }
 
 // ============================================================

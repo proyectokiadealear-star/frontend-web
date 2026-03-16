@@ -17,7 +17,6 @@ import { Input } from "@/components/ui/Input";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { ArrowLeft, Upload, FileText, RefreshCw, X, CheckCircle, Plus, Trash2, AlertTriangle } from "lucide-react";
 import {
-  AccessoryKey,
   AccessoryLabel,
   AccessoryClassification,
   AccessoryClassificationLabel,
@@ -232,23 +231,14 @@ export default function DocumentacionFormPage() {
     fd.append(
       "accessories",
       JSON.stringify(
-        formData.accessories
-          // Backend validates against a static enum (14 keys). Filter out
-          // custom catalog accessories whose key isn't in that enum yet.
-          .filter((a) =>
-            Object.values(AccessoryKey)
-              .map((v) => v.toLowerCase())
-              .includes(a.key.toLowerCase())
-          )
-          .map((a) => {
-            const item: { key: string; classification: string; notes?: string } = {
-              key: a.key.toLowerCase(), // backend enum is all lowercase (boton_encendido, aros...)
-              classification: a.classification,
-            };
-            // 'notes' solo para el accesorio 'otros'
-            if (a.key.toLowerCase() === "otros" && a.notes) item.notes = a.notes;
-            return item;
-          })
+        formData.accessories.map((a) => {
+          const item: { key: string; classification: string; notes?: string } = {
+            key: a.key, // preserve exact key as stored in the catalog/DB
+            classification: a.classification,
+          };
+          if (a.key.toLowerCase() === "otros" && a.notes) item.notes = a.notes;
+          return item;
+        })
       )
     );
     if (files.invoiceFile) fd.append("vehicleInvoice", files.invoiceFile);
@@ -277,14 +267,14 @@ export default function DocumentacionFormPage() {
           toast.success("Documentación completada correctamente");
           router.push("/dashboard/stock");
         } else {
-          // Pure partial edit
+          // Pure partial edit — go back to wherever the user came from
           toast.success("Documentación actualizada");
-          router.push("/dashboard/documentacion");
+          router.back();
         }
       } else {
         if (saveAsPending) {
           toast("Guardado como pendiente", { icon: "⏳" });
-          router.push("/dashboard/documentacion");
+          router.back();
         } else {
           toast.success("Vehículo documentado correctamente");
           router.push("/dashboard/stock");

@@ -494,6 +494,15 @@ export function DashboardBI() {
           <SectionHeader>Distribución por sede</SectionHeader>
           {showSkeleton ? (
             <ChartSkeleton h={200} />
+          ) : sede ? (
+            /* Cuando hay filtro de sede activo, el gráfico no aporta valor */
+            <div className="flex flex-col items-center justify-center py-12 gap-2">
+              <span className="text-2xl">🏢</span>
+              <p className="text-sm font-semibold text-gray-700">{sede}</p>
+              <p className="text-xs text-gray-400 text-center">
+                Filtrando por sede — la distribución no aplica
+              </p>
+            </div>
           ) : !sedeChartData.length ? (
             <p className="text-sm text-gray-400 text-center py-16">Sin datos</p>
           ) : (
@@ -807,6 +816,48 @@ export function DashboardBI() {
                           style={{ color: "#16a34a" }}
                         >
                           {a.entregas}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </BICard>
+
+              {/* Top taller · OTs realizadas */}
+              <BICard className="flex-1">
+                <SectionHeader>Top taller · OTs realizadas</SectionHeader>
+                <p className="text-[10px] text-gray-400 -mt-3 mb-3">
+                  Órdenes de trabajo asignadas en el período
+                </p>
+                {showSkeleton ? (
+                  <div className="space-y-2">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-8 rounded-lg bg-gray-100 animate-pulse" />
+                    ))}
+                  </div>
+                ) : !data?.topTaller?.length ? (
+                  <p className="text-xs text-gray-400 text-center py-6">Sin datos</p>
+                ) : (
+                  <div className="space-y-2">
+                    {data.topTaller.slice(0, 5).map((t, i) => (
+                      <div
+                        key={t.uid}
+                        className="flex items-center gap-2.5 py-1.5 px-2 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        <span className="text-base leading-none shrink-0 w-5 text-center">
+                          {MEDAL[i] ?? (
+                            <span className="text-xs font-bold text-gray-400">{i + 1}</span>
+                          )}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-gray-900 truncate">{t.name}</p>
+                          <p className="text-[10px] text-gray-400 truncate">{t.sede}</p>
+                        </div>
+                        <span
+                          className="text-sm font-bold shrink-0 tabular-nums"
+                          style={{ color: "#0ea5e9" }}
+                        >
+                          {t.totalOTs}
                         </span>
                       </div>
                     ))}

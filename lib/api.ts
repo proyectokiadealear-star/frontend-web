@@ -17,6 +17,13 @@ import type {
 } from "@/types";
 
 // ============================================================
+// Storage keys — single source of truth used by AuthContext too
+// ============================================================
+export const STORAGE_TOKEN_KEY = "kia_token";
+export const STORAGE_REFRESH_KEY = "kia_refresh_token";
+export const STORAGE_USER_KEY = "kia_user";
+
+// ============================================================
 // Instancia Axios
 // ============================================================
 const api = axios.create({
@@ -27,27 +34,91 @@ const api = axios.create({
 // Token se inyecta antes de cada request
 api.interceptors.request.use((config) => {
   if (typeof window !== "undefined") {
-    const token = localStorage.getItem("kia_token");
+    const token = localStorage.getItem(STORAGE_TOKEN_KEY);
     if (token) config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
-// Manejo global de errores
+// ── Refresh-queue: evita que múltiples 401 simultáneos disparen
+// múltiples renovaciones de token al mismo tiempo.
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (token: string) => void;
+  reject: (err: unknown) => void;
+}> = [];
+
+const processQueue = (error: unknown, token: string | null = null) => {
+  failedQueue.forEach((p) => {
+    if (error) p.reject(error);
+    else p.resolve(token!);
+  });
+  failedQueue = [];
+};
+
+const clearSession = () => {
+  localStorage.removeItem(STORAGE_TOKEN_KEY);
+  localStorage.removeItem(STORAGE_REFRESH_KEY);
+  localStorage.removeItem(STORAGE_USER_KEY);
+  window.location.href = "/login?expired=1";
+};
+
+// Manejo global de errores con renovación automática de token
 api.interceptors.response.use(
   (res) => res,
-  (error) => {
-    if (typeof window !== "undefined") {
-      const status = error?.response?.status;
-      const url: string = error?.config?.url ?? "";
-      // Si recibe 401 en cualquier llamada que no sea el login, el token expiró → forzar logout
-      if (status === 401 && !url.includes("/auth/login")) {
-        localStorage.removeItem("kia_token");
-        localStorage.removeItem("kia_user");
-        window.location.href = "/login?expired=1";
-      }
+  async (error) => {
+    if (typeof window === "undefined") return Promise.reject(error);
+
+    const originalRequest = error.config;
+    const status: number = error?.response?.status;
+    const url: string = originalRequest?.url ?? "";
+
+    // No intentar renovar en endpoints de autenticación
+    if (status !== 401 || url.includes("/auth/")) {
+      return Promise.reject(error);
     }
-    return Promise.reject(error);
+
+    // Si otra petición ya está renovando el token, encolar esta
+    if (isRefreshing) {
+      return new Promise<string>((resolve, reject) => {
+        failedQueue.push({ resolve, reject });
+      })
+        .then((token) => {
+          originalRequest.headers.Authorization = `Bearer ${token}`;
+          return api.request(originalRequest);
+        })
+        .catch((err) => Promise.reject(err));
+    }
+
+    // Marcar para no reintentar este request de nuevo si el refresh también falla
+    originalRequest._retry = true;
+    isRefreshing = true;
+
+    const refreshToken = localStorage.getItem(STORAGE_REFRESH_KEY);
+    if (!refreshToken) {
+      isRefreshing = false;
+      clearSession();
+      return Promise.reject(error);
+    }
+
+    try {
+      // Llamada directa (sin api) para no pasar por este mismo interceptor
+      const { data } = await axios.post<{ idToken: string }>(
+        `${API_BASE_URL}/auth/refresh`,
+        { refreshToken },
+      );
+      const newToken = data.idToken;
+      localStorage.setItem(STORAGE_TOKEN_KEY, newToken);
+      processQueue(null, newToken);
+      originalRequest.headers.Authorization = `Bearer ${newToken}`;
+      return api.request(originalRequest);
+    } catch (refreshError) {
+      processQueue(refreshError, null);
+      clearSession();
+      return Promise.reject(refreshError);
+    } finally {
+      isRefreshing = false;
+    }
   },
 );
 
@@ -56,6 +127,15 @@ api.interceptors.response.use(
 // ============================================================
 export const authLogin = (email: string, password: string) =>
   api.post<Record<string, string>>("/auth/login", { email, password });
+
+export const authRefresh = (refreshToken: string) =>
+  api.post<{ idToken: string; expiresIn: number }>("/auth/refresh", { refreshToken });
+
+// Logout: usa axios directo para evitar loop si el idToken ya expiró
+export const authLogout = (refreshToken: string) =>
+  axios.post(`${API_BASE_URL}/auth/logout`, { refreshToken });
+
+export const authLogoutAll = () => api.post("/auth/logout-all");
 
 // ============================================================
 // USERS
@@ -289,10 +369,51 @@ export type BIAnalyticsData = {
     }[];
     entregas: { uid: string; name: string; sede: string; entregas: number }[];
   };
+  topTaller: {
+    uid: string;
+    name: string;
+    sede: string;
+    totalOTs: number;
+  }[];
 };
 
 export const getTechnicianPerformance = (uid: string) =>
   api.get(`/reports/technician-performance/${uid}`);
+
+// ============================================================
+// ENTREGADOS — resumen histórico por año
+// ============================================================
+export const getEntregadosResumen = (params: {
+  año?: number;
+  sede?: string;
+  modelo?: string;
+}) =>
+  api.get("/vehicles/entregados/resumen", { params });
+
+// ============================================================
+// CALL CENTER — lista de ENTREGADO con accesorios seguro/telemetría
+// ============================================================
+export interface CallCenterVehicleRaw {
+  id: string;
+  chasis: string;
+  modelo: string;
+  color: string;
+  año: number;
+  sede: string;
+  status: string;
+  propietario: {
+    nombre: string;
+    cedula: string;
+    telefono: string;
+    celular: string;
+  };
+  accessories: Array<{ key: string; classification: string | null }>;
+}
+
+export const getVehiclesCallCenter = (page = 1, limit = 100) =>
+  api.get<PaginatedResponse<CallCenterVehicleRaw>>("/vehicles/call-center", {
+    params: { page, limit },
+  });
 
 // ============================================================
 // CATALOGS

@@ -385,6 +385,7 @@ export const getTechnicianPerformance = (uid: string) =>
 // ============================================================
 export const getEntregadosResumen = (params: {
   año?: number;
+  fechaDesde?: string; // "YYYY-MM-DD"
   sede?: string;
   modelo?: string;
 }) =>

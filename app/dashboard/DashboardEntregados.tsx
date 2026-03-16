@@ -27,22 +27,59 @@ const KIA_RED = "#e8382f";
 const COLOR_MAP: Record<string, string> = {
   PLOMO:    "#94a3b8",
   PLATEADO: "#cbd5e1",
+  plateado: "#cbd5e1",
   BLANCO:   "#f8fafc",
   ROJO:     "#e8382f",
   NEGRO:    "#1e293b",
   CREMA:    "#fef3c7",
   AZUL:     "#3b82f6",
+  VERDE:    "#22c55e",
+  CELESTE:  "#38bdf8",
 };
 
 // ─── TypeScript interfaces ────────────────────────────────────
-interface EntregadosMes    { label: string; cantidad: number }
-interface EntregadosAño    { año: number;  cantidad: number }
+interface EntregadosMes       { label: string; cantidad: number }
+interface EntregadosAño       { año: number;   cantidad: number }
 interface EntregadosCategoria { label: string; cantidad: number }
 
+/** Shape of entregados_historico.json (new structure with detalle_anual) */
 interface EntregadosJSON {
   metadata: {
-    fecha_actual: string;
-    total_registros: number;
+    total_registros_filtrados?: number;
+    total_registros_sin_2026?: number;
+    total_registros?: number;
+    rango_fechas?: { inicio: string; fin: string };
+  };
+  kpis_seguros: { SI: number; NO: number };
+  analisis_temporal: {
+    por_año: EntregadosAño[];
+    /** New JSON uses "por_mes", old used "por_mes_label" — support both */
+    por_mes?: EntregadosMes[];
+    por_mes_label?: EntregadosMes[];
+  };
+  analisis_categorico: {
+    /** New JSON uses _global suffix */
+    por_modelo_global?: EntregadosCategoria[];
+    por_color_global?:  EntregadosCategoria[];
+    /** Old JSON keys (kept for backwards compat) */
+    por_modelo?: EntregadosCategoria[];
+    por_color?:  EntregadosCategoria[];
+    /** New JSON uses _global suffix; old used "por_sede" */
+    por_sede_global?: EntregadosCategoria[];
+    por_sede?:        EntregadosCategoria[];
+    detalle_anual?: {
+      modelos_por_año: Record<string, EntregadosCategoria[]>;
+      colores_por_año: Record<string, EntregadosCategoria[]>;
+      sedes_por_año:   Record<string, EntregadosCategoria[]>;
+    };
+  };
+}
+
+/** Shape returned by the realtime API (EntregadosResumen endpoint) */
+interface EntregadosAPI {
+  metadata: {
+    total_registros_filtrados?: number;
+    total_registros?: number;
   };
   kpis_seguros: { SI: number; NO: number };
   analisis_temporal: {
@@ -58,7 +95,7 @@ interface EntregadosJSON {
 
 interface DatosFusionados {
   totalHistorico: number;
-  total2026:      number | null;
+  totalRT:        number | null;   // registros desde la API (tiempo real)
   totalGlobal:    number;
   conSeguro:      number;
   sinSeguro:      number;
@@ -69,69 +106,68 @@ interface DatosFusionados {
   porSede:        EntregadosCategoria[];
 }
 
+// ─── Merge helpers ────────────────────────────────────────────
+const MESES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+function parseMesLabel(l: string) {
+  const [m, y] = l.split(" ");
+  return parseInt(y) * 12 + MESES.indexOf(m);
+}
+
+function mergeAños(a: EntregadosAño[], b: EntregadosAño[]): EntregadosAño[] {
+  const map = new Map<number, number>();
+  [...a, ...b].forEach(({ año, cantidad }) => map.set(año, (map.get(año) ?? 0) + cantidad));
+  return Array.from(map.entries())
+    .map(([año, cantidad]) => ({ año, cantidad }))
+    .sort((x, y) => x.año - y.año);
+}
+
+function mergeCategoria(a: EntregadosCategoria[], b: EntregadosCategoria[]): EntregadosCategoria[] {
+  const map = new Map<string, number>();
+  [...a, ...b].forEach(({ label, cantidad }) => map.set(label, (map.get(label) ?? 0) + cantidad));
+  return Array.from(map.entries())
+    .map(([label, cantidad]) => ({ label, cantidad }))
+    .sort((x, y) => y.cantidad - x.cantidad);
+}
+
 // ─── Pure fusion function ─────────────────────────────────────
 function fusionarEntregados(
   historico: EntregadosJSON,
-  data2026:  EntregadosJSON | null
+  dataRT:    EntregadosAPI | null
 ): DatosFusionados {
-  const totalHistorico = historico.metadata.total_registros;
-  const total2026 = data2026 ? data2026.metadata.total_registros : null;
-  const totalGlobal = totalHistorico + (total2026 ?? 0);
+  const totalHistorico =
+    historico.metadata.total_registros_filtrados ??
+    historico.metadata.total_registros_sin_2026 ??
+    historico.metadata.total_registros ?? 0;
 
-  const conSeguro = historico.kpis_seguros.SI + (data2026?.kpis_seguros.SI ?? 0);
-  const sinSeguro = historico.kpis_seguros.NO + (data2026?.kpis_seguros.NO ?? 0);
+  const totalRT = dataRT
+    ? (dataRT.metadata.total_registros_filtrados ?? dataRT.metadata.total_registros ?? null)
+    : null;
 
-  // Años: append 2026 entries
-  const porAño: EntregadosAño[] = [
-    ...historico.analisis_temporal.por_año,
-    ...(data2026?.analisis_temporal.por_año ?? []),
-  ];
+  const totalGlobal = totalHistorico + (totalRT ?? 0);
+  const conSeguro   = historico.kpis_seguros.SI + (dataRT?.kpis_seguros.SI ?? 0);
+  const sinSeguro   = historico.kpis_seguros.NO + (dataRT?.kpis_seguros.NO ?? 0);
 
-  // Meses: append 2026 entries
-  const porMes: EntregadosMes[] = [
-    ...historico.analisis_temporal.por_mes_label,
-    ...(data2026?.analisis_temporal.por_mes_label ?? []),
-  ];
-
-  // Helper: merge two categoría arrays summing by label
-  const mergeCategoria = (
-    a: EntregadosCategoria[],
-    b: EntregadosCategoria[]
-  ): EntregadosCategoria[] => {
-    const map = new Map<string, number>();
-    [...a, ...b].forEach(({ label, cantidad }) => {
-      map.set(label, (map.get(label) ?? 0) + cantidad);
-    });
-    return Array.from(map.entries())
-      .map(([label, cantidad]) => ({ label, cantidad }))
-      .sort((x, y) => y.cantidad - x.cantidad);
-  };
-
-  const porModelo = mergeCategoria(
-    historico.analisis_categorico.por_modelo,
-    data2026?.analisis_categorico.por_modelo ?? []
-  );
-  const porColor = mergeCategoria(
-    historico.analisis_categorico.por_color,
-    data2026?.analisis_categorico.por_color ?? []
-  );
-  const porSede = mergeCategoria(
-    historico.analisis_categorico.por_sede,
-    data2026?.analisis_categorico.por_sede ?? []
+  const porAño = mergeAños(
+    historico.analisis_temporal.por_año,
+    dataRT?.analisis_temporal.por_año ?? []
   );
 
-  return {
-    totalHistorico,
-    total2026,
-    totalGlobal,
-    conSeguro,
-    sinSeguro,
-    porAño,
-    porMes,
-    porModelo,
-    porColor,
-    porSede,
-  };
+  // Support both key names ("por_mes" new / "por_mes_label" old)
+  const mesMes = historico.analisis_temporal.por_mes ?? historico.analisis_temporal.por_mes_label ?? [];
+  const porMes = mergeCategoria(mesMes, dataRT?.analisis_temporal.por_mes_label ?? [])
+    .sort((a, b) => parseMesLabel(a.label) - parseMesLabel(b.label));
+
+  // Support both key names for global modelo/color
+  const histModelo = historico.analisis_categorico.por_modelo_global ?? historico.analisis_categorico.por_modelo ?? [];
+  const histColor  = historico.analisis_categorico.por_color_global  ?? historico.analisis_categorico.por_color  ?? [];
+
+  const histSede   = historico.analisis_categorico.por_sede_global ?? historico.analisis_categorico.por_sede ?? [];
+
+  const porModelo = mergeCategoria(histModelo, dataRT?.analisis_categorico.por_modelo ?? []);
+  const porColor  = mergeCategoria(histColor,  dataRT?.analisis_categorico.por_color  ?? []);
+  const porSede   = mergeCategoria(histSede,   dataRT?.analisis_categorico.por_sede   ?? []);
+
+  return { totalHistorico, totalRT, totalGlobal, conSeguro, sinSeguro, porAño, porMes, porModelo, porColor, porSede };
 }
 
 // ─── Sub-components (same design system as DashboardBI) ───────
@@ -259,35 +295,42 @@ interface PieLabelProps {
 
 // ─── Main component ───────────────────────────────────────────
 export function DashboardEntregados() {
-  const [data2026, setData2026]         = useState<EntregadosJSON | null>(null);
+  const [data2026, setData2026]         = useState<EntregadosAPI | null>(null);
   const [loading2026, setLoading2026]   = useState(true);
-  const [error2026, setError2026]       = useState(false);
+  const [errorRT, setErrorRT]           = useState(false);
 
   // Filters
   const [activeAño,    setActiveAño]    = useState<number | null>(null);
   const [activeSede,   setActiveSede]   = useState<string>("");
   const [activeModelo, setActiveModelo] = useState<string>("");
 
-  // Fetch 2026 data — se re-ejecuta cuando cambian sede o modelo
+  // fechaDesde: día siguiente al último día cubierto por el JSON histórico
+  const fechaDesdeAPI = useMemo(() => {
+    const hist = historicoData as unknown as EntregadosJSON;
+    const fin = hist.metadata.rango_fechas?.fin;
+    if (!fin) return undefined;
+    const d = new Date(fin + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + 1);
+    return d.toISOString().split("T")[0]; // "YYYY-MM-DD"
+  }, []);
+
+  // Fetch tiempo real — solo trae entregas POSTERIORES al JSON histórico
   useEffect(() => {
     let cancelled = false;
     setLoading2026(true);
-    setError2026(false);
+    setErrorRT(false);
 
-    const sede = activeSede || undefined;
-    const modelo = activeModelo || undefined;
-
-    getEntregadosResumen({ año: 2026, sede, modelo })
+    getEntregadosResumen({ fechaDesde: fechaDesdeAPI })
       .then((res) => {
         if (!cancelled) {
-          setData2026(res.data);
-          setError2026(false);
+          setData2026(res.data as unknown as EntregadosAPI);
+          setErrorRT(false);
         }
       })
       .catch(() => {
         if (!cancelled) {
           setData2026(null);
-          setError2026(true);
+          setErrorRT(true);
         }
       })
       .finally(() => {
@@ -296,13 +339,53 @@ export function DashboardEntregados() {
 
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSede, activeModelo]);
+  }, [fechaDesdeAPI]);
 
-  // Fused data (memoized)
+  // Fused data (memoized) — uses JSON historico + RT data
   const datos = useMemo(
-    () => fusionarEntregados(historicoData as EntregadosJSON, data2026),
+    () => fusionarEntregados(historicoData as unknown as EntregadosJSON, data2026),
     [data2026]
   );
+
+  // ── desglose por año: leer de detalle_anual del JSON (sin fetch adicional)
+  const hist = historicoData as unknown as EntregadosJSON;
+  const detalleAnual = hist.analisis_categorico.detalle_anual;
+
+  // ── Año "en curso" del JSON: el año de rango_fechas.fin (ej: 2026)
+  // Para ese año, los datos del JSON son parciales → hay que sumar el RT
+  const añoEnCursoJSON = useMemo(() => {
+    const fin = hist.metadata.rango_fechas?.fin;
+    return fin ? new Date(fin + "T00:00:00Z").getUTCFullYear() : null;
+  }, [hist]);
+
+  // ── Fuente de modelo/color/sede: año activo (JSON detalle_anual) o global (fusionado)
+  // Para el año en curso, mergear JSON parcial + datos RT
+  const modeloSource: EntregadosCategoria[] = useMemo(() => {
+    if (activeAño === null) return datos.porModelo;
+    const jsonAño = detalleAnual?.modelos_por_año[String(activeAño)] ?? [];
+    if (activeAño === añoEnCursoJSON && data2026) {
+      return mergeCategoria(jsonAño, data2026.analisis_categorico.por_modelo);
+    }
+    return jsonAño;
+  }, [activeAño, detalleAnual, datos.porModelo, añoEnCursoJSON, data2026]);
+
+  const colorSource: EntregadosCategoria[] = useMemo(() => {
+    if (activeAño === null) return datos.porColor;
+    const jsonAño = detalleAnual?.colores_por_año[String(activeAño)] ?? [];
+    if (activeAño === añoEnCursoJSON && data2026) {
+      return mergeCategoria(jsonAño, data2026.analisis_categorico.por_color);
+    }
+    return jsonAño;
+  }, [activeAño, detalleAnual, datos.porColor, añoEnCursoJSON, data2026]);
+
+  const sedeSource: EntregadosCategoria[] = useMemo(() => {
+    if (activeAño === null) return datos.porSede;
+    const jsonAño = detalleAnual?.sedes_por_año[String(activeAño)] ?? [];
+    if (activeAño === añoEnCursoJSON && data2026) {
+      return mergeCategoria(jsonAño, data2026.analisis_categorico.por_sede);
+    }
+    return jsonAño;
+  }, [activeAño, detalleAnual, datos.porSede, añoEnCursoJSON, data2026]);
 
   // ── Derived: filtered month data
   const mesesVisibles = useMemo(() => {
@@ -314,20 +397,22 @@ export function DashboardEntregados() {
   // ── XAxis tick interval for global view (every 6 months)
   const xAxisInterval = activeAño !== null ? 0 : 5;
 
-  // ── porAño with 2026 highlight fill
+  // ── porAño with highlight fill (año activo resaltado en rojo)
   const porAñoConColor = useMemo(
     () =>
       datos.porAño.map((d) => ({
         ...d,
-        fill: d.año === 2026 ? KIA_RED : "#cbd5e1",
+        fill: activeAño !== null
+          ? d.año === activeAño ? KIA_RED : "#e5e7eb"
+          : d.año === 2026 ? KIA_RED : "#cbd5e1",
       })),
-    [datos.porAño]
+    [datos.porAño, activeAño]
   );
 
   // ── porModelo with active highlight
   const modeloConColor = useMemo(
     () =>
-      datos.porModelo.slice(0, 10).map((d) => ({
+      modeloSource.slice(0, 10).map((d) => ({
         ...d,
         fill:
           activeModelo === ""
@@ -336,23 +421,23 @@ export function DashboardEntregados() {
             ? KIA_RED
             : "#e5e7eb",
       })),
-    [datos.porModelo, activeModelo]
+    [modeloSource, activeModelo]
   );
 
   // ── porSede totals
   const totalSede = useMemo(
-    () => datos.porSede.reduce((s, d) => s + d.cantidad, 0) || 1,
-    [datos.porSede]
+    () => sedeSource.reduce((s, d) => s + d.cantidad, 0) || 1,
+    [sedeSource]
   );
 
   // ── Pie color data
   const colorPieData = useMemo(
     () =>
-      datos.porColor.map((d) => ({
+      colorSource.map((d) => ({
         ...d,
         fill: COLOR_MAP[d.label] ?? "#94a3b8",
       })),
-    [datos.porColor]
+    [colorSource]
   );
 
   const totalColor = useMemo(
@@ -381,13 +466,18 @@ export function DashboardEntregados() {
 
   const hasFilters = activeAño !== null || activeSede !== "" || activeModelo !== "";
 
-  // ── 2026 KPI display
-  const kpi2026 =
+  // ── KPI "en tiempo real": entregas posteriores al JSON histórico
+  const kpiTempoReal =
     loading2026
       ? "..."
-      : error2026 || datos.total2026 === null
+      : errorRT || datos.totalRT === null
       ? "—"
-      : datos.total2026.toLocaleString("es-EC");
+      : datos.totalRT.toLocaleString("es-EC");
+
+  // Sub-label dinámico basado en fechaDesde
+  const labelTempoReal = fechaDesdeAPI
+    ? `Desde ${fechaDesdeAPI}`
+    : "En tiempo real";
 
   // ── Render ─────────────────────────────────────────────────
   return (
@@ -408,20 +498,20 @@ export function DashboardEntregados() {
             </div>
           </div>
 
-          {/* 2026 status badge */}
-          {!loading2026 && error2026 && (
+          {/* Tiempo real status badge */}
+          {!loading2026 && errorRT && (
             <div className="flex items-center gap-1.5 bg-yellow-500/20 border border-yellow-400/30 rounded-lg px-3 py-1.5">
               <AlertTriangle size={12} className="text-yellow-400 shrink-0" />
               <span className="text-[11px] font-medium text-yellow-300">
-                Solo histórico — 2026 no disponible
+                Solo histórico — tiempo real no disponible
               </span>
             </div>
           )}
-          {!loading2026 && !error2026 && data2026 && (
+          {!loading2026 && !errorRT && data2026 && (
             <div className="flex items-center gap-1.5 bg-green-500/20 border border-green-400/30 rounded-lg px-3 py-1.5">
               <TrendingUp size={12} className="text-green-400 shrink-0" />
               <span className="text-[11px] font-medium text-green-300">
-                2026 en tiempo real
+                Tiempo real activo
               </span>
             </div>
           )}
@@ -465,12 +555,12 @@ export function DashboardEntregados() {
           <KpiBlock
             label="Total histórico"
             value={datos.totalHistorico.toLocaleString("es-EC")}
-            sub="Mar 2021 – Dic 2025"
+            sub="Mar 2021 – Feb 2026"
           />
           <KpiBlock
-            label="Entregados 2026"
-            value={kpi2026}
-            sub={loading2026 ? "Cargando..." : error2026 ? "No disponible" : "En curso"}
+            label="Tiempo real"
+            value={kpiTempoReal}
+            sub={loading2026 ? "Cargando..." : errorRT ? "No disponible" : labelTempoReal}
           />
           <KpiBlock
             label="Con seguro"
@@ -557,7 +647,7 @@ export function DashboardEntregados() {
           <p className="text-[10px] text-gray-400 -mt-3 mb-3">
             {activeAño !== null
               ? `Mostrando los ${mesesVisibles.length} meses de ${activeAño}`
-              : "Mar 2021 → 2026 completo"}
+              : "Mar 2021 → Feb 2026 + tiempo real"}
           </p>
           <ResponsiveContainer width="100%" height={240}>
             <LineChart
@@ -604,7 +694,9 @@ export function DashboardEntregados() {
         {/* Por modelo — horizontal BarChart */}
         <BICard>
           <div className="flex items-start justify-between mb-0">
-            <SectionHeader>Por modelo</SectionHeader>
+            <SectionHeader>
+              {activeAño !== null ? `Por modelo — ${activeAño}` : "Por modelo"}
+            </SectionHeader>
             {activeModelo && (
               <span className="text-[10px] text-gray-400 mb-4">
                 Click para deseleccionar
@@ -614,8 +706,7 @@ export function DashboardEntregados() {
           <p className="text-[10px] text-gray-400 -mt-3 mb-3">
             Top 10 modelos · Click para resaltar
           </p>
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart
+          <ResponsiveContainer width="100%" height={280}>            <BarChart
               data={modeloConColor}
               layout="vertical"
               margin={{ top: 0, right: 52, left: 8, bottom: 0 }}
@@ -668,34 +759,36 @@ export function DashboardEntregados() {
 
         {/* Por color — donut PieChart con leyenda lateral */}
         <BICard>
-          <SectionHeader>Por color</SectionHeader>
+          <SectionHeader>
+            {activeAño !== null ? `Por color — ${activeAño}` : "Por color"}
+          </SectionHeader>
           <div className="flex flex-col sm:flex-row items-center gap-4 mt-2">
             {/* Donut */}
             <div className="shrink-0">
               <ResponsiveContainer width={180} height={180}>
-                <PieChart>
-                  <Pie
-                    data={colorPieData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={82}
-                    paddingAngle={2}
-                    dataKey="cantidad"
-                    animationDuration={600}
-                  >
-                    {colorPieData.map((item, i) => (
-                      <Cell
-                        key={i}
-                        fill={item.fill}
-                        stroke={item.label === "BLANCO" ? "#e2e8f0" : item.fill}
-                        strokeWidth={item.label === "BLANCO" ? 1 : 0}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip content={<ChartTooltip />} />
-                </PieChart>
-              </ResponsiveContainer>
+                  <PieChart>
+                    <Pie
+                      data={colorPieData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={82}
+                      paddingAngle={2}
+                      dataKey="cantidad"
+                      animationDuration={600}
+                    >
+                      {colorPieData.map((item, i) => (
+                        <Cell
+                          key={i}
+                          fill={item.fill}
+                          stroke={item.label === "BLANCO" ? "#e2e8f0" : item.fill}
+                          strokeWidth={item.label === "BLANCO" ? 1 : 0}
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<ChartTooltip />} />
+                  </PieChart>
+                </ResponsiveContainer>
             </div>
 
             {/* Legend */}
@@ -734,7 +827,7 @@ export function DashboardEntregados() {
         <BICard>
           <SectionHeader>Distribución por sede</SectionHeader>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
-            {datos.porSede.map((sede) => {
+            {sedeSource.map((sede) => {
               const pct = Math.round((sede.cantidad / totalSede) * 100);
               const isActive = activeSede === sede.label;
               return (
@@ -787,9 +880,9 @@ export function DashboardEntregados() {
 
       {/* ── Nota de fuente ───────────────────────────────── */}
       <p className="mt-4 text-center text-[10px] text-gray-400 leading-relaxed">
-        Datos históricos: Mar 2021 – Dic 2025 ({datos.totalHistorico.toLocaleString("es-EC")} registros)
+        Histórico: Mar 2021 – Feb 2026 ({datos.totalHistorico.toLocaleString("es-EC")} registros)
         {" · "}
-        Datos 2026: en tiempo real desde Firebase
+        {fechaDesdeAPI ? `Tiempo real desde ${fechaDesdeAPI}` : "Tiempo real desde Firebase"}
       </p>
     </section>
   );

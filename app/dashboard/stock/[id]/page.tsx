@@ -558,12 +558,10 @@ export default function VehicleDetailPage() {
                 value={formatDate(vehicle.registeredDate)}
               />
             )}
-            {vehicle.registrationSentDate && (
-              <Field
-                label="Fecha envío a matricular"
-                value={formatDate(vehicle.registrationSentDate)}
-              />
-            )}
+            <Field
+              label="Fecha envío a matricular"
+              value={vehicle.registrationSentDate ? formatDate(vehicle.registrationSentDate) : "—"}
+            />
             {vehicle.receptionDate && (
               <Field
                 label="Fecha de recepción"
@@ -654,12 +652,10 @@ export default function VehicleDetailPage() {
                 <Field label="Cédula" value={doc.clientId} />
                 <Field label="Teléfono" value={doc.clientPhone} />
                 <Field label="Tipo de matrícula" value={doc.registrationType} />
-                {vehicle.registrationSentDate && (
-                  <Field
-                    label="Enviado a matricular"
-                    value={formatDate(vehicle.registrationSentDate)}
-                  />
-                )}
+                <Field
+                  label="Enviado a matricular"
+                  value={vehicle.registrationSentDate ? formatDate(vehicle.registrationSentDate) : "—"}
+                />
                 {vehicle.registrationReceivedDate && (
                   <Field
                     label="Matrícula recibida"

@@ -29,6 +29,9 @@ import {
   User,
   IdCard,
   Clock,
+  Building2,
+  TrendingUp,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
@@ -93,6 +96,8 @@ export default function AgendamientoPage() {
     RoleEnum.LIDER_TECNICO,
   ]);
   const isReadOnly = !user?.role || !SCHEDULING_ROLES.has(user.role as Parameters<typeof SCHEDULING_ROLES.has>[0]);
+  const canFilterSede =
+    user?.role === RoleEnum.JEFE_TALLER || user?.role === RoleEnum.SOPORTE;
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [readyVehicles, setReadyVehicles] = useState<Vehicle[]>([]);
   const [advisors, setAdvisors] = useState<UserProfile[]>([]);
@@ -263,6 +268,10 @@ export default function AgendamientoPage() {
   // List tab filter: sede
   const [listFilterSede, setListFilterSede] = useState("");
 
+  // Pending tab filters
+  const [pendingSearchChassis, setPendingSearchChassis] = useState("");
+  const [pendingFilterSede, setPendingFilterSede] = useState("");
+
   // List tab: filter all appointments by selected date + sede
   const listAppointments = useMemo(() => {
     const filtered = appointments.filter((a) => {
@@ -279,6 +288,56 @@ export default function AgendamientoPage() {
       return a.scheduledTime.localeCompare(b.scheduledTime);
     });
   }, [appointments, listFilterDate, listFilterSede]);
+
+  // ── Sede config (colores + labels) ────────────────────────────────────────
+  const SEDE_CONFIG: Record<string, { label: string; color: string; bg: string; border: string; dot: string }> = {
+    SURMOTOR:       { label: "Surmotor",       color: "text-emerald-700", bg: "bg-emerald-50",  border: "border-emerald-200", dot: "bg-emerald-500" },
+    SHYRIS:         { label: "Shyris",          color: "text-orange-700",  bg: "bg-orange-50",   border: "border-orange-200",  dot: "bg-orange-500"  },
+    GRANDA_CENTENO: { label: "Granda Centeno",  color: "text-violet-700",  bg: "bg-violet-50",   border: "border-violet-200",  dot: "bg-violet-500"  },
+  };
+  const SEDE_ORDER = ["SURMOTOR", "SHYRIS", "GRANDA_CENTENO"];
+
+  // ── Contadores por sede (siempre sobre fecha seleccionada, sin filtro de sede) ──
+  const sedeCounters = useMemo(() => {
+    const base = appointments.filter((a) =>
+      listFilterDate ? a.scheduledDate === listFilterDate : true
+    );
+    const counts: Record<string, number> = {};
+    for (const sede of SEDE_ORDER) {
+      counts[sede] = base.filter((a) => a.sede === sede).length;
+    }
+    counts["TOTAL"] = base.length;
+    return counts;
+  }, [appointments, listFilterDate]);
+
+  // ── Agrupación por sede ────────────────────────────────────────────────────
+  const listBySede = useMemo(() => {
+    const groups: Record<string, typeof listAppointments> = {};
+    for (const appt of listAppointments) {
+      const sede = appt.sede ?? "OTRAS";
+      if (!groups[sede]) groups[sede] = [];
+      groups[sede].push(appt);
+    }
+    // Orden canónico primero, luego el resto
+    const ordered: Array<{ sede: string; appts: typeof listAppointments }> = [];
+    for (const sede of SEDE_ORDER) {
+      if (groups[sede]?.length) ordered.push({ sede, appts: groups[sede] });
+    }
+    for (const sede of Object.keys(groups)) {
+      if (!SEDE_ORDER.includes(sede)) ordered.push({ sede, appts: groups[sede] });
+    }
+    return ordered;
+  }, [listAppointments]);
+
+  // ── Pending tab: vehículos filtrados ─────────────────────────────────────
+  const pendingVehicles = useMemo(() => {
+    return readyVehicles.filter((v) => {
+      if (v.status !== VehicleStatus.LISTO_PARA_ENTREGA) return false;
+      if (pendingSearchChassis && !v.chassis?.toLowerCase().includes(pendingSearchChassis.toLowerCase())) return false;
+      if (canFilterSede && pendingFilterSede && v.sede !== pendingFilterSede) return false;
+      return true;
+    });
+  }, [readyVehicles, pendingSearchChassis, pendingFilterSede, canFilterSede]);
 
   return (
     <div>
@@ -521,55 +580,93 @@ export default function AgendamientoPage() {
         </div>
       ) : tab === "pending" ? (
         /* ── Pending tab ──────────────────────────────────────────────── */
-        <div>
-          <p className="text-sm text-gray-500 mb-4">
-            Vehículos con estado <strong>Listo para Entrega</strong> sin fecha asignada.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {readyVehicles
-              .filter((v) => v.status === VehicleStatus.LISTO_PARA_ENTREGA)
-              .map((v) => (
-                <div
-                  key={v.id}
-                  className="bg-white border border-gray-200 rounded-xl p-4 space-y-3"
+        <div className="space-y-4">
+          {/* ── Toolbar: búsqueda + filtro sede ── */}
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Búsqueda por chasis */}
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Buscar chasis…"
+                value={pendingSearchChassis}
+                onChange={(e) => setPendingSearchChassis(e.target.value)}
+                className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 w-52"
+              />
+            </div>
+            {/* Filtro por sede — solo para JEFE_TALLER / SOPORTE */}
+            {canFilterSede && (
+              <div className="flex items-center gap-2">
+                <MapPin size={15} className="text-gray-400 shrink-0" />
+                <select
+                  value={pendingFilterSede}
+                  onChange={(e) => setPendingFilterSede(e.target.value)}
+                  className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900 cursor-pointer"
                 >
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">
-                      {v.model} — {v.color}
+                  <option value="">Todas las sedes</option>
+                  {sedes.map((s) => (
+                    <option key={s.id} value={s.code || s.name}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {/* Conteo de resultados */}
+            <span className="text-sm text-gray-500">
+              {pendingVehicles.length} vehículo{pendingVehicles.length !== 1 ? "s" : ""} pendiente{pendingVehicles.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+
+          {/* ── Grid de tarjetas ── */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {pendingVehicles.map((v) => (
+              <div
+                key={v.id}
+                className="bg-white border border-gray-200 rounded-xl p-4 space-y-3"
+              >
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">
+                    {v.model} — {v.color}
+                  </p>
+                  <p className="text-xs font-chassis text-gray-500">{v.chassis}</p>
+                  <p className="text-xs text-gray-400 mt-1">{v.sede}</p>
+                  {v.clientName && (
+                    <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                      <User size={10} />
+                      {v.clientName}
+                      {v.clientId && (
+                        <span className="text-gray-400">· {v.clientId}</span>
+                      )}
                     </p>
-                    <p className="text-xs font-chassis text-gray-500">{v.chassis}</p>
-                    <p className="text-xs text-gray-400 mt-1">{v.sede}</p>
-                    {v.clientName && (
-                      <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-                        <User size={10} />
-                        {v.clientName}
-                        {v.clientId && (
-                          <span className="text-gray-400">· {v.clientId}</span>
-                        )}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <StatusBadge status={v.status} />
-                    {!isReadOnly && (
-                      <Button size="sm" icon={<Plus size={12} />} onClick={() => openCreate(v)}>
-                        Agendar
-                      </Button>
-                    )}
-                  </div>
+                  )}
                 </div>
-              ))}
-            {readyVehicles.filter((v) => v.status === VehicleStatus.LISTO_PARA_ENTREGA).length === 0 && (
-              <p className="col-span-3 text-sm text-gray-400 text-center py-8">
-                No hay vehículos pendientes de agendar.
-              </p>
+                <div className="flex items-center justify-between">
+                  <StatusBadge status={v.status} />
+                  {!isReadOnly && (
+                    <Button size="sm" icon={<Plus size={12} />} onClick={() => openCreate(v)}>
+                      Agendar
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+            {pendingVehicles.length === 0 && (
+              <div className="col-span-3 py-14 text-center">
+                <Search size={28} className="text-gray-200 mx-auto mb-2" />
+                <p className="text-sm text-gray-400">
+                  {readyVehicles.filter((v) => v.status === VehicleStatus.LISTO_PARA_ENTREGA).length === 0
+                    ? "No hay vehículos pendientes de agendar."
+                    : "Sin resultados para los filtros aplicados."}
+                </p>
+              </div>
             )}
           </div>
         </div>
       ) : (
         /* ── List tab ─────────────────────────────────────────────────── */
-        <div className="space-y-4">
-          {/* Filters */}
+        <div className="space-y-5">
+          {/* ── Filters ── */}
           <div className="flex flex-wrap items-center gap-3">
             <div className="w-52">
               <DateInput
@@ -578,7 +675,6 @@ export default function AgendamientoPage() {
                 onChange={(v) => setListFilterDate(v)}
               />
             </div>
-            {/* Sede filter */}
             <div className="flex items-center gap-2">
               <MapPin size={15} className="text-gray-400 shrink-0" />
               <select
@@ -603,76 +699,139 @@ export default function AgendamientoPage() {
             </span>
           </div>
 
-          {/* Table */}
-          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-            <div className="overflow-x-auto">
-            <table className="w-full min-w-[580px] text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50">
-                  <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">VIN / Chasis</th>
-                  <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">Cliente</th>
-                  <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">Cédula</th>
-                  <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">Asesor / T. Líder</th>
-                  <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">Fecha</th>
-                  <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">Hora</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                 {listAppointments.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="text-center text-sm text-gray-400 py-10">
-                      No hay agendamientos para este día.
-                    </td>
-                  </tr>
-                ) : (
-                  listAppointments
-                    .map((appt) => {
-                      const isDelivered = ([VehicleStatus.ENTREGADO, VehicleStatus.CEDIDO] as string[]).includes(
-                        appt.status ?? ""
-                      );
-                      return (
-                        <tr
-                          key={appt.id}
-                          className={cn(
-                            "transition-colors",
-                            isDelivered
-                              ? "bg-gray-50 opacity-60"
-                              : "hover:bg-gray-50"
-                          )}
-                        >
-                          <td className={cn("px-4 py-3 font-chassis text-xs", isDelivered ? "text-gray-400" : "text-gray-500")}>
-                            {appt.chassis ?? "—"}
-                          </td>
-                          <td className={cn("px-4 py-3 font-medium", isDelivered ? "text-gray-400 line-through" : "text-gray-900")}>
-                            {appt.clientName ?? "—"}
-                          </td>
-                          <td className={cn("px-4 py-3", isDelivered ? "text-gray-400" : "text-gray-500")}>
-                            {appt.clientId ?? "—"}
-                          </td>
-                          <td className={cn("px-4 py-3", isDelivered ? "text-gray-400" : "text-gray-700")}>
-                            {appt.assignedAdvisorName ?? "—"}
-                          </td>
-                          <td className={cn("px-4 py-3", isDelivered ? "text-gray-400" : "text-gray-500")}>
-                            {appt.scheduledDate}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <span className={cn("text-sm", isDelivered ? "text-gray-400" : "text-gray-500")}>
-                                {appt.scheduledTime}
-                              </span>
-                              {isDelivered && (
-                                <StatusBadge status={appt.status as import("@/lib/constants").VehicleStatusType} />
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                )}
-              </tbody>
-            </table>
+          {/* ── Dashboard de contadores ── */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* Total */}
+            <div className="bg-gray-900 rounded-2xl px-5 py-4 flex items-center gap-4">
+              <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
+                <TrendingUp size={18} className="text-white" />
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Total</p>
+                <p className="text-2xl font-black text-white leading-none mt-0.5">{sedeCounters["TOTAL"]}</p>
+              </div>
             </div>
+            {/* Por sede */}
+            {SEDE_ORDER.map((sede) => {
+              const cfg = SEDE_CONFIG[sede];
+              return (
+                <div
+                  key={sede}
+                  className={cn("rounded-2xl px-5 py-4 flex items-center gap-4 border", cfg.bg, cfg.border)}
+                >
+                  <div className={cn("w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-white/60")}>
+                    <Building2 size={18} className={cfg.color} />
+                  </div>
+                  <div>
+                    <p className={cn("text-[11px] font-semibold uppercase tracking-wider", cfg.color)}>{cfg.label}</p>
+                    <p className={cn("text-2xl font-black leading-none mt-0.5", cfg.color)}>{sedeCounters[sede] ?? 0}</p>
+                  </div>
+                </div>
+              );
+            })}
           </div>
+
+          {/* ── Tabla agrupada por sede ── */}
+          {listAppointments.length === 0 ? (
+            <div className="bg-white border border-gray-200 rounded-2xl py-14 text-center">
+              <CalendarDays size={28} className="text-gray-200 mx-auto mb-2" />
+              <p className="text-sm text-gray-400">No hay agendamientos para este día.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {listBySede.map(({ sede, appts }) => {
+                const cfg = SEDE_CONFIG[sede];
+                return (
+                  <div key={sede} className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+                    {/* Encabezado de sede */}
+                    <div className={cn("flex items-center gap-3 px-5 py-3 border-b", cfg ? cfg.bg : "bg-gray-50", cfg ? cfg.border : "border-gray-200")}>
+                      <div className={cn("w-2.5 h-2.5 rounded-full shrink-0", cfg ? cfg.dot : "bg-gray-400")} />
+                      <Building2 size={14} className={cn("shrink-0", cfg ? cfg.color : "text-gray-500")} />
+                      <span className={cn("text-sm font-semibold", cfg ? cfg.color : "text-gray-700")}>
+                        {cfg?.label ?? sede}
+                      </span>
+                      <span className={cn(
+                        "ml-auto text-xs font-bold px-2.5 py-0.5 rounded-full",
+                        cfg ? `${cfg.bg} ${cfg.color} border ${cfg.border}` : "bg-gray-100 text-gray-600"
+                      )}>
+                        {appts.length} {appts.length === 1 ? "entrega" : "entregas"}
+                      </span>
+                    </div>
+
+                    {/* Tabla de esa sede */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[720px] text-sm">
+                        <thead>
+                          <tr className="border-b border-gray-100 bg-gray-50/60">
+                            <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wide px-4 py-2.5">VIN / Chasis</th>
+                            <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wide px-4 py-2.5">Modelo / Color</th>
+                            <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wide px-4 py-2.5">Cliente</th>
+                            <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wide px-4 py-2.5">Cédula</th>
+                            <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wide px-4 py-2.5">Asesor / T. Líder</th>
+                            <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wide px-4 py-2.5">Fecha</th>
+                            <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wide px-4 py-2.5">Hora</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {appts.map((appt) => {
+                            const isDelivered = ([VehicleStatus.ENTREGADO, VehicleStatus.CEDIDO] as string[]).includes(
+                              appt.status ?? ""
+                            );
+                            return (
+                              <tr
+                                key={appt.id}
+                                className={cn(
+                                  "transition-colors",
+                                  isDelivered ? "bg-gray-50 opacity-60" : "hover:bg-gray-50"
+                                )}
+                              >
+                                <td className={cn("px-4 py-3 font-chassis text-xs", isDelivered ? "text-gray-400" : "text-gray-500")}>
+                                  {appt.chassis ?? "—"}
+                                </td>
+                                <td className={cn("px-4 py-3", isDelivered ? "text-gray-400" : "text-gray-700")}>
+                                  <p className={cn("text-sm font-medium leading-snug", isDelivered ? "text-gray-400" : "text-gray-900")}>
+                                    {appt.model ?? "—"}
+                                  </p>
+                                  {appt.color && (
+                                    <p className={cn("text-xs leading-snug", isDelivered ? "text-gray-400" : "text-gray-500")}>
+                                      {appt.color}
+                                    </p>
+                                  )}
+                                </td>
+                                <td className={cn("px-4 py-3 font-medium", isDelivered ? "text-gray-400 line-through" : "text-gray-900")}>
+                                  {appt.clientName ?? "—"}
+                                </td>
+                                <td className={cn("px-4 py-3", isDelivered ? "text-gray-400" : "text-gray-500")}>
+                                  {appt.clientId ?? "—"}
+                                </td>
+                                <td className={cn("px-4 py-3", isDelivered ? "text-gray-400" : "text-gray-700")}>
+                                  {appt.assignedAdvisorName ?? "—"}
+                                </td>
+                                <td className={cn("px-4 py-3", isDelivered ? "text-gray-400" : "text-gray-500")}>
+                                  {appt.scheduledDate}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-2">
+                                    <Clock size={12} className={isDelivered ? "text-gray-300" : "text-gray-400"} />
+                                    <span className={cn("text-sm", isDelivered ? "text-gray-400" : "text-gray-500")}>
+                                      {appt.scheduledTime}
+                                    </span>
+                                    {isDelivered && (
+                                      <StatusBadge status={appt.status as import("@/lib/constants").VehicleStatusType} />
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

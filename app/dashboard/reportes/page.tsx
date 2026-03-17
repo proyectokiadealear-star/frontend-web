@@ -19,7 +19,7 @@ import { TraceabilityTimeline } from "@/components/vehicles/TraceabilityTimeline
 import { formatDate } from "@/lib/utils";
 import { generateVehiclePDF } from "@/lib/generateVehiclePDF";
 import { VehicleStatus, VehicleStatusLabel } from "@/lib/constants";
-import type { Vehicle, Certification, Documentation, DeliveryCeremony, StatusHistoryEntry } from "@/types";
+import type { Vehicle, Certification, Documentation, DeliveryCeremony, StatusHistoryEntry, CatalogItem } from "@/types";
 import { FileDown, X } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -36,7 +36,7 @@ export default function ReportesPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [sedeFilter, setSedeFilter] = useState("");
-  const [sedes, setSedes] = useState<string[]>([]);
+  const [sedes, setSedes] = useState<CatalogItem[]>([]);
 
   // Drawer state
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -53,11 +53,7 @@ export default function ReportesPage() {
   useEffect(() => {
     getSedes()
       .then((res) => {
-        const names = (res.data ?? [])
-          .map((s) => s.name)
-          .filter(Boolean)
-          .sort() as string[];
-        setSedes(names);
+        setSedes(res.data ?? []);
       })
       .catch(() => { /* silencioso, el filtro queda vacío */ });
   }, []);
@@ -179,7 +175,7 @@ export default function ReportesPage() {
             value: sedeFilter,
             options: [
               { value: "", label: "Todas las sedes" },
-              ...sedes.map((s) => ({ value: s.replace(/\s+/g, "_"), label: s })),
+              ...sedes.map((s) => ({ value: s.code || s.name, label: s.name })),
             ],
             onChange: setSedeFilter,
           },

@@ -162,6 +162,7 @@ export interface Appointment {
   // Campos planos populados por el API
   chassis?: string;
   model?: string;
+  color?: string;
   sede?: string;
   clientName?: string;
   clientId?: string;

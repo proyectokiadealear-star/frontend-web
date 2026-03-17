@@ -70,7 +70,7 @@ export default function PotencialVentaPage() {
   useEffect(() => {
     getSedes()
       .then((res) =>
-        setSedeOptions((res.data ?? []).map((s: CatalogItem) => ({ value: s.name, label: s.name })))
+        setSedeOptions((res.data ?? []).map((s: CatalogItem) => ({ value: s.code || s.name, label: s.name })))
       )
       .catch(() => {});
   }, []);

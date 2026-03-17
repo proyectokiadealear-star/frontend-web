@@ -84,7 +84,15 @@ const ACTIVE_STATUSES = new Set([
 
 export default function AgendamientoPage() {
   const { user } = useAuth();
-  const isReadOnly = user?.role === RoleEnum.ASESOR || user?.role === RoleEnum.LIDER_TECNICO;
+  // Roles that CAN schedule: JEFE_TALLER, SOPORTE, ASESOR, LIDER_TECNICO
+  // Read-only roles: BODEGUERO, PERSONAL_TALLER, DOCUMENTACION
+  const SCHEDULING_ROLES = new Set([
+    RoleEnum.JEFE_TALLER,
+    RoleEnum.SOPORTE,
+    RoleEnum.ASESOR,
+    RoleEnum.LIDER_TECNICO,
+  ]);
+  const isReadOnly = !user?.role || !SCHEDULING_ROLES.has(user.role as Parameters<typeof SCHEDULING_ROLES.has>[0]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [readyVehicles, setReadyVehicles] = useState<Vehicle[]>([]);
   const [advisors, setAdvisors] = useState<UserProfile[]>([]);
@@ -151,12 +159,15 @@ export default function AgendamientoPage() {
   const openCreate = (vehicle: Vehicle) => {
     setSelectedVehicle(vehicle);
     setEditAppointment(null);
+    // Pre-select current user as advisor if they are ASESOR or LIDER_TECNICO
+    const isSelfRole =
+      user?.role === RoleEnum.ASESOR || user?.role === RoleEnum.LIDER_TECNICO;
     setForm({
       vehicleId: vehicle.id,
       scheduledDate: "",
       scheduledTime: "09:00",
-      assignedAdvisorId: "",
-      assignedAdvisorName: "",
+      assignedAdvisorId: isSelfRole ? (user?.uid ?? "") : "",
+      assignedAdvisorName: isSelfRole ? (user?.displayName ?? "") : "",
     });
     setModalOpen(true);
   };

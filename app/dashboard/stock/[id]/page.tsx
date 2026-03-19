@@ -29,6 +29,7 @@ import { Select } from "@/components/ui/Select";
 import { DateInput } from "@/components/ui/DateInput";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { TraceabilityTimeline } from "@/components/vehicles/TraceabilityTimeline";
+import { VehicleStatusStepper } from "@/components/vehicles/VehicleStatusStepper";
 import { DocFileField } from "@/components/vehicles/DocFileField";
 import { DocMultiFileField } from "@/components/vehicles/DocMultiFileField";
 import {
@@ -519,6 +520,15 @@ export default function VehicleDetailPage() {
           <Car size={48} className="text-gray-300" />
         )}
       </div>
+
+      {/* Status Stepper */}
+      <VehicleStatusStepper
+        status={vehicle.status}
+        isReopening={vehicle.isReopening}
+        certifiedWhileNoFacturado={vehicle.certifiedWhileNoFacturado}
+        history={history}
+        className="mb-6"
+      />
 
       {/* Tab bar */}
       <div className="flex border-b border-gray-200 mb-6">

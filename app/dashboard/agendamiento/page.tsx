@@ -97,7 +97,7 @@ export default function AgendamientoPage() {
   ]);
   const isReadOnly = !user?.role || !SCHEDULING_ROLES.has(user.role as Parameters<typeof SCHEDULING_ROLES.has>[0]);
   const canFilterSede =
-    user?.role === RoleEnum.JEFE_TALLER || user?.role === RoleEnum.SOPORTE;
+    user?.role === RoleEnum.JEFE_TALLER || user?.role === RoleEnum.SOPORTE || user?.role === RoleEnum.SUPERVISOR;
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [readyVehicles, setReadyVehicles] = useState<Vehicle[]>([]);
   const [advisors, setAdvisors] = useState<UserProfile[]>([]);

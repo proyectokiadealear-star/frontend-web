@@ -67,6 +67,10 @@ const navByRole: Record<string, NavItem[]> = {
     { href: "/dashboard/stock", label: "Stock", icon: <Car size={18} /> },
     { href: "/dashboard/agendamiento", label: "Agendamiento", icon: <Calendar size={18} /> },
   ],
+  [RoleEnum.SUPERVISOR]: [
+    { href: "/dashboard", label: "Inicio", icon: <LayoutDashboard size={18} /> },
+    { href: "/dashboard/agendamiento", label: "Agendamiento", icon: <Calendar size={18} /> },
+  ],
 };
 
 interface SidebarProps {

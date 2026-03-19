@@ -34,6 +34,6 @@ export default function DashboardPage() {
     return <AsesorLiderDashboard />;
   }
 
-  // JEFE_TALLER and SOPORTE
+  // JEFE_TALLER, SOPORTE, and SUPERVISOR fall through to JefeDashboard
   return <JefeDashboard />;
 }

@@ -388,6 +388,11 @@ export type BIAnalyticsData = {
   byStatus: Record<string, number>;
   bySede: Record<string, number>;
   byModel: Record<string, number>;
+  byColor: Record<string, number>;
+  avgDaysToDelivery: number | null;
+  medianDaysToDelivery: number | null;
+  byModelRotation: Record<string, { avgDays: number; count: number }>;
+  byMonthlyDeliveries: { month: string; count: number }[];
   accessories: {
     byKey: Record<
       string,

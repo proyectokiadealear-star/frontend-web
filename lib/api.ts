@@ -225,6 +225,43 @@ export const getVehicleStatsBySede = () => api.get("/vehicles/stats/by-sede");
 export const getTodayDeliveries = () =>
   api.get<Vehicle[]>("/vehicles/stats/today-deliveries");
 
+export interface EtlRow {
+  sede: string | null;
+  chassis: string | null;
+  status: string | null;
+  deliveryDate: string | null;
+  createdAt: string | null;
+  year: number | null;
+  model: string | null;
+  color: string | null;
+  clientName: string | null;
+  clientId: string | null;
+  clientPhone: string | null;
+}
+
+export async function previewExcel(file: File): Promise<{ total: number; data: EtlRow[] }> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await api.post('/vehicles/preview-excel', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return res.data;
+}
+
+export async function cargarExcel(file: File): Promise<{
+  total: number;
+  insertados: number;
+  actualizados: number;
+  ignorados: number;
+}> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await api.post('/vehicles/cargar-excel', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return res.data;
+}
+
 // ============================================================
 // CERTIFICATIONS
 // ============================================================

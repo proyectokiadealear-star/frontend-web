@@ -385,6 +385,7 @@ export const getBIAnalytics = (params: {
 export type BIAnalyticsData = {
   total: number;
   vehiclesDelivered: number;
+  vehiclesCreatedInPeriod?: number;
   byStatus: Record<string, number>;
   bySede: Record<string, number>;
   byModel: Record<string, number>;

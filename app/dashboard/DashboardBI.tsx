@@ -296,8 +296,11 @@ export function DashboardBI() {
   );
 
   const deliveryRate = useMemo(() => {
-    if (!data || !data.total) return 0;
-    return Math.round((data.vehiclesDelivered / data.total) * 100);
+    if (!data) return 0;
+    // REQ-DATE-04: use vehiclesCreatedInPeriod as denominator so both values
+    // share the same time window — avoids comparing period deliveries vs historical total
+    const denominator = data.vehiclesCreatedInPeriod || 1;
+    return Math.round((data.vehiclesDelivered / denominator) * 100);
   }, [data]);
 
   const statusData = useMemo(() => {
@@ -496,8 +499,8 @@ export function DashboardBI() {
 
         {/* Macro KPIs */}
         {showSkeleton ? (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
-            {[1, 2, 3, 4].map((i) => (
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-6">
+            {[1, 2, 3, 4, 5].map((i) => (
               <div key={i} className="space-y-2">
                 <div className="h-3 w-20 rounded bg-white/10 animate-pulse" />
                 <div className="h-10 w-16 rounded bg-white/10 animate-pulse" />
@@ -516,7 +519,7 @@ export function DashboardBI() {
             </button>
           </div>
         ) : data ? (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-6">
             <KpiBlock
               label="Inventario total"
               value={data.total}
@@ -528,9 +531,14 @@ export function DashboardBI() {
               sub="en el período"
             />
             <KpiBlock
+              label="Ingresos al sistema"
+              value={data.vehiclesCreatedInPeriod ?? 0}
+              sub="ingresados en el período"
+            />
+            <KpiBlock
               label="Tasa de entrega"
               value={`${deliveryRate}%`}
-              sub="entregados / inventario"
+              sub="entregados / ingresos"
             />
             <KpiBlock
               label="Prom. entrega"
@@ -547,6 +555,11 @@ export function DashboardBI() {
         {/* Embudo de flujo vehicular */}
         <BICard>
           <SectionHeader>Embudo de flujo vehicular</SectionHeader>
+          {/* REQ-DATE-06: explain that the funnel shows active inventory, not period activity */}
+          <p className="text-[10px] text-gray-400 -mt-3 mb-3">
+            Muestra todos los vehículos activos en inventario (sin filtro de fecha).
+            Las métricas de entrega sí aplican el rango seleccionado.
+          </p>
           {showSkeleton ? (
             <ChartSkeleton h={320} />
           ) : !funnelData.length ? (

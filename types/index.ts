@@ -55,6 +55,7 @@ export interface Vehicle {
   deliveredBy?: string;
   createdAt: DateField;
   updatedAt: DateField;
+  statusChangedAt?: DateField;
   // Fields pre-populated from Excel import
   clientName?: string;
   clientId?: string;
@@ -293,4 +294,6 @@ export interface VehicleFilters {
   clientId?: string;
   page?: number;
   limit?: number;
+  dateFrom?: string;
+  dateTo?: string;
 }

@@ -39,8 +39,9 @@ function persistSeenVehicles(ids: Set<string>) {
 }
 
 // ── timestamp helpers ─────────────────────────────────────────────────────────
+// Uses statusChangedAt (last real pipeline action), falls back to updatedAt for legacy data
 function toTimestamp(v: Vehicle): number {
-  const u = v.updatedAt;
+  const u = v.statusChangedAt ?? v.updatedAt;
   if (!u) return 0;
   if (typeof u === "object" && "_seconds" in u) return (u as { _seconds: number })._seconds * 1000;
   const d = new Date(u as string);
@@ -78,7 +79,7 @@ export default function StockPage() {
     isBodeguero ? VehicleStatus.DOCUMENTADO : ""
   );
 
-  // Date range filter (BODEGUERO — client-side, applied on updatedAt)
+  // Date range filter (all roles — server-side, applied on statusChangedAt)
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [showDateFilter, setShowDateFilter] = useState(false);
@@ -107,6 +108,8 @@ export default function StockPage() {
         chassis: search || undefined,
         sede: filterSede || undefined,
         status: filterStatus || undefined,
+        dateFrom: dateFrom || undefined,
+        dateTo: dateTo || undefined,
         page,
         limit,
       });
@@ -118,7 +121,7 @@ export default function StockPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, filterSede, filterStatus, page]);
+  }, [search, filterSede, filterStatus, dateFrom, dateTo, page]);
 
   useEffect(() => { fetchVehicles(); }, [fetchVehicles]);
 
@@ -127,26 +130,14 @@ export default function StockPage() {
   }, []);
 
   // ── computed display list ──────────────────────────────────────────────────
-  // Apply date filter (client-side) then sort for BODEGUERO
+  // Sort by statusChangedAt desc (last pipeline action first) for all roles.
+  // BODEGUERO additionally splits unseen / seen.
   const displayVehicles = useMemo(() => {
-    let list = vehicles;
-
-    // Date range filter on updatedAt
-    if (isBodeguero && (dateFrom || dateTo)) {
-      const from = dateFrom ? new Date(dateFrom + "T00:00:00").getTime() : null;
-      const to   = dateTo   ? new Date(dateTo   + "T23:59:59").getTime() : null;
-      list = list.filter((v) => {
-        const ts = toTimestamp(v);
-        if (!ts) return false;
-        if (from && ts < from) return false;
-        if (to   && ts > to)   return false;
-        return true;
-      });
-    }
+    const list = [...vehicles].sort((a, b) => toTimestamp(b) - toTimestamp(a));
 
     if (isBodeguero) return sortBodeguero(list, seenIds);
     return list;
-  }, [vehicles, seenIds, isBodeguero, dateFrom, dateTo]);
+  }, [vehicles, seenIds, isBodeguero]);
 
   // ── actions ───────────────────────────────────────────────────────────────
   const handleDelete = async () => {
@@ -264,61 +255,59 @@ export default function StockPage() {
           ]}
         />
 
-        {/* ── Date range filter (BODEGUERO only) ───────────────────────── */}
-        {isBodeguero && (
-          <div className="flex flex-wrap items-end gap-3">
-            {/* Toggle button */}
-            <button
-              type="button"
-              onClick={() => setShowDateFilter((p) => !p)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
-                showDateFilter || dateFilterActive
-                  ? "bg-gray-900 text-white border-gray-900"
-                  : "bg-white text-gray-600 border-gray-300 hover:border-gray-500 hover:text-gray-900"
-              }`}
-            >
-              <CalendarRange size={15} />
-              Filtrar por fecha
-              {dateFilterActive && (
-                <span className="ml-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                  activo
-                </span>
-              )}
-            </button>
-
-            {/* Date pickers — shown when expanded */}
-            {showDateFilter && (
-              <>
-                <div className="min-w-[200px]">
-                  <DateInput
-                    label="Desde"
-                    value={dateFrom}
-                    onChange={(v) => setDateFrom(v)}
-                    max={dateTo || undefined}
-                  />
-                </div>
-                <div className="min-w-[200px]">
-                  <DateInput
-                    label="Hasta"
-                    value={dateTo}
-                    onChange={(v) => setDateTo(v)}
-                    min={dateFrom || undefined}
-                  />
-                </div>
-                {dateFilterActive && (
-                  <button
-                    type="button"
-                    onClick={clearDateFilter}
-                    className="flex items-center gap-1 px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-500 hover:text-red-600 hover:border-red-300 transition-colors self-end"
-                  >
-                    <X size={13} />
-                    Limpiar
-                  </button>
-                )}
-              </>
+        {/* ── Date range filter (all roles — web) ──────────────────────── */}
+        <div className="flex flex-wrap items-end gap-3">
+          {/* Toggle button */}
+          <button
+            type="button"
+            onClick={() => setShowDateFilter((p) => !p)}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+              showDateFilter || dateFilterActive
+                ? "bg-gray-900 text-white border-gray-900"
+                : "bg-white text-gray-600 border-gray-300 hover:border-gray-500 hover:text-gray-900"
+            }`}
+          >
+            <CalendarRange size={15} />
+            Filtrar por fecha
+            {dateFilterActive && (
+              <span className="ml-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                activo
+              </span>
             )}
-          </div>
-        )}
+          </button>
+
+          {/* Date pickers — shown when expanded */}
+          {showDateFilter && (
+            <>
+              <div className="min-w-[200px]">
+                <DateInput
+                  label="Desde"
+                  value={dateFrom}
+                  onChange={(v) => { setDateFrom(v); setPage(1); }}
+                  max={dateTo || undefined}
+                />
+              </div>
+              <div className="min-w-[200px]">
+                <DateInput
+                  label="Hasta"
+                  value={dateTo}
+                  onChange={(v) => { setDateTo(v); setPage(1); }}
+                  min={dateFrom || undefined}
+                />
+              </div>
+              {dateFilterActive && (
+                <button
+                  type="button"
+                  onClick={() => { clearDateFilter(); setPage(1); }}
+                  className="flex items-center gap-1 px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-500 hover:text-red-600 hover:border-red-300 transition-colors self-end"
+                >
+                  <X size={13} />
+                  Limpiar
+                </button>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* ── Grid ─────────────────────────────────────────────────────────── */}
@@ -327,11 +316,11 @@ export default function StockPage() {
       ) : displayVehicles.length === 0 ? (
         <div className="bg-white border border-gray-200 rounded-xl p-12 text-center">
           <p className="text-sm text-gray-400">
-            {isBodeguero
-              ? dateFilterActive
-                ? "Sin vehículos en ese rango de fechas."
-                : "No hay vehículos documentados pendientes."
-              : "No se encontraron vehículos."}
+            {dateFilterActive
+              ? "Sin vehículos en ese rango de fechas."
+              : isBodeguero
+                ? "No hay vehículos documentados pendientes."
+                : "No se encontraron vehículos."}
           </p>
         </div>
       ) : (

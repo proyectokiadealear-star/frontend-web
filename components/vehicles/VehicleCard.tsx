@@ -91,8 +91,8 @@ export function VehicleCard({
           <span>{vehicle.year}</span>
         </div>
 
-        {/* Fecha última modificación (modo bodeguero o explícito) */}
-        {(showLastModified || isBodegueroMode) && vehicle.updatedAt && (
+        {/* Fecha última acción del pipeline (modo bodeguero o explícito) */}
+        {(showLastModified || isBodegueroMode) && (vehicle.statusChangedAt || vehicle.updatedAt) && (
           <div className={cn(
             "flex items-center gap-1 text-xs font-medium rounded-md px-2 py-1",
             isNew
@@ -100,7 +100,7 @@ export function VehicleCard({
               : "bg-gray-50 text-gray-500"
           )}>
             <Clock size={11} className="flex-shrink-0" />
-            <span>Últ. mod. {formatDateTime(vehicle.updatedAt)}</span>
+            <span>Últ. acción {formatDateTime(vehicle.statusChangedAt ?? vehicle.updatedAt)}</span>
           </div>
         )}
 

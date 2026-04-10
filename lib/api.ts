@@ -501,6 +501,9 @@ export const getNotifications = (params?: { read?: boolean; limit?: number }) =>
 export const markNotificationRead = (id: string) =>
   api.patch(`/notifications/${id}/read`);
 
+export const registerFcmToken = (token: string) =>
+  api.post("/users/fcm-token", { token });
+
 export const getAccessories = () =>
   api.get<CatalogItem[]>("/catalogs/accessories");
 export const createAccessory = (data: Partial<CatalogItem>) =>

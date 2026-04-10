@@ -15,8 +15,12 @@ import {
 import { getNotifications, markNotificationRead } from "@/lib/api";
 import type { Notification } from "@/types";
 import { cn } from "@/lib/utils";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
+import toast from "react-hot-toast";
+import type { MessagePayload } from "firebase/messaging";
 
-const POLL_INTERVAL = 60_000;
+const POLL_FAST = 60_000; // fallback when push is not active
+const POLL_SLOW = 300_000; // 5 min when push is active
 
 // ── Type metadata ────────────────────────────────────────────
 type TypeMeta = {
@@ -120,12 +124,48 @@ export function NotificationBell() {
     }
   }, []);
 
-  // Initial fetch + background poll
+  // ── Push notifications integration ──────────────────────────
+  const { supported, permission } = usePushNotifications(
+    useCallback(
+      (payload: MessagePayload) => {
+        // Foreground push received — refresh the bell instantly
+        fetchNotifications();
+
+        // Show a toast so the user notices
+        const title = payload.notification?.title ?? "Nueva notificación";
+        const body = payload.notification?.body ?? "";
+        toast(
+          (t) => (
+            <div
+              className="flex flex-col gap-0.5 cursor-pointer"
+              onClick={() => toast.dismiss(t.id)}
+            >
+              <span className="text-sm font-semibold text-gray-900">
+                {title}
+              </span>
+              {body && (
+                <span className="text-xs text-gray-500 line-clamp-2">
+                  {body}
+                </span>
+              )}
+            </div>
+          ),
+          { duration: 5000, icon: "🔔" }
+        );
+      },
+      [fetchNotifications]
+    )
+  );
+
+  const pushActive = supported && permission === "granted";
+  const pollInterval = pushActive ? POLL_SLOW : POLL_FAST;
+
+  // Initial fetch + background poll (slower when push is active)
   useEffect(() => {
     fetchNotifications();
-    const id = setInterval(fetchNotifications, POLL_INTERVAL);
+    const id = setInterval(fetchNotifications, pollInterval);
     return () => clearInterval(id);
-  }, [fetchNotifications]);
+  }, [fetchNotifications, pollInterval]);
 
   // Refresh when panel opens
   useEffect(() => {

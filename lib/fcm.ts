@@ -65,10 +65,15 @@ export async function requestPermissionAndRegister(): Promise<NotificationPermis
   if (!messaging) return "granted"; // permission granted but messaging not supported
 
   try {
-    // Register the service worker explicitly so FCM uses our custom SW
+    // Register the service worker and wait until it's fully active.
+    // getToken() requires an active SW — calling it before that throws
+    // "Subscription failed - no active Service Worker".
     const swRegistration = await navigator.serviceWorker.register(
       "/firebase-messaging-sw.js"
     );
+
+    // Wait for the SW to be active (installing → waiting → active)
+    await navigator.serviceWorker.ready;
 
     const currentToken = await getToken(messaging, {
       vapidKey: VAPID_KEY,

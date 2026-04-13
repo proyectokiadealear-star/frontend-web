@@ -132,21 +132,36 @@ export default function AgendamientoPage() {
     assignedAdvisorName: "",
   });
 
+  /** Fetch ALL vehicles for the given statuses using exhaustive pagination */
+  const fetchAllVehicles = useCallback(async (statuses: string): Promise<Vehicle[]> => {
+    const PAGE_SIZE = 200;
+    let page = 1;
+    let all: Vehicle[] = [];
+    let hasMore = true;
+    while (hasMore) {
+      const res = await getVehicles({ status: statuses, limit: PAGE_SIZE, page });
+      const batch = res.data.data || [];
+      all = [...all, ...batch];
+      hasMore = all.length < (res.data.total ?? 0);
+      page++;
+      // Safety: avoid infinite loop
+      if (page > 50) break;
+    }
+    return all;
+  }, []);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [apptRes, readyRes, advisorRes, liderRes, sedeRes] = await Promise.all([
+      const [apptRes, readyVehiclesAll, advisorRes, liderRes, sedeRes] = await Promise.all([
         getAppointments(),
-        getVehicles({
-          status: `${VehicleStatus.LISTO_PARA_ENTREGA},${VehicleStatus.AGENDADO}`,
-          limit: 100,
-        }),
+        fetchAllVehicles(`${VehicleStatus.LISTO_PARA_ENTREGA},${VehicleStatus.AGENDADO}`),
         getUsers({ role: RoleEnum.ASESOR }),
         getUsers({ role: RoleEnum.LIDER_TECNICO }),
         getSedes(),
       ]);
       setAppointments(apptRes.data);
-      setReadyVehicles(readyRes.data.data || []);
+      setReadyVehicles(readyVehiclesAll);
       // Merge asesores + líderes técnicos, sorted by name
       const merged = [...(advisorRes.data ?? []), ...(liderRes.data ?? [])];
       merged.sort((a, b) => a.displayName.localeCompare(b.displayName));
@@ -157,7 +172,7 @@ export default function AgendamientoPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchAllVehicles]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -272,6 +287,12 @@ export default function AgendamientoPage() {
   const [pendingSearchChassis, setPendingSearchChassis] = useState("");
   const [pendingFilterSede, setPendingFilterSede] = useState("");
 
+  // ── Pagination state ──────────────────────────────────────────────────────
+  const PENDING_PAGE_SIZE = 12;
+  const LIST_PAGE_SIZE = 15;
+  const [pendingPage, setPendingPage] = useState(1);
+  const [listPage, setListPage] = useState(1);
+
   // List tab: filter all appointments by selected date + sede
   const listAppointments = useMemo(() => {
     const filtered = appointments.filter((a) => {
@@ -310,27 +331,8 @@ export default function AgendamientoPage() {
     return counts;
   }, [appointments, listFilterDate]);
 
-  // ── Agrupación por sede ────────────────────────────────────────────────────
-  const listBySede = useMemo(() => {
-    const groups: Record<string, typeof listAppointments> = {};
-    for (const appt of listAppointments) {
-      const sede = appt.sede ?? "OTRAS";
-      if (!groups[sede]) groups[sede] = [];
-      groups[sede].push(appt);
-    }
-    // Orden canónico primero, luego el resto
-    const ordered: Array<{ sede: string; appts: typeof listAppointments }> = [];
-    for (const sede of SEDE_ORDER) {
-      if (groups[sede]?.length) ordered.push({ sede, appts: groups[sede] });
-    }
-    for (const sede of Object.keys(groups)) {
-      if (!SEDE_ORDER.includes(sede)) ordered.push({ sede, appts: groups[sede] });
-    }
-    return ordered;
-  }, [listAppointments]);
-
   // ── Pending tab: vehículos filtrados ─────────────────────────────────────
-  const pendingVehicles = useMemo(() => {
+  const pendingVehiclesAll = useMemo(() => {
     return readyVehicles.filter((v) => {
       if (v.status !== VehicleStatus.LISTO_PARA_ENTREGA) return false;
       if (pendingSearchChassis && !v.chassis?.toLowerCase().includes(pendingSearchChassis.toLowerCase())) return false;
@@ -338,6 +340,42 @@ export default function AgendamientoPage() {
       return true;
     });
   }, [readyVehicles, pendingSearchChassis, pendingFilterSede, canFilterSede]);
+
+  // Reset pending page when filters change
+  useEffect(() => { setPendingPage(1); }, [pendingSearchChassis, pendingFilterSede]);
+
+  const pendingTotalPages = Math.max(1, Math.ceil(pendingVehiclesAll.length / PENDING_PAGE_SIZE));
+  const pendingVehicles = useMemo(() => {
+    const start = (pendingPage - 1) * PENDING_PAGE_SIZE;
+    return pendingVehiclesAll.slice(start, start + PENDING_PAGE_SIZE);
+  }, [pendingVehiclesAll, pendingPage]);
+
+  // Reset list page when filters change
+  useEffect(() => { setListPage(1); }, [listFilterDate, listFilterSede]);
+
+  // ── List tab: paginated appointments grouped by sede ──────────────────────
+  const listTotalPages = Math.max(1, Math.ceil(listAppointments.length / LIST_PAGE_SIZE));
+  const paginatedListAppointments = useMemo(() => {
+    const start = (listPage - 1) * LIST_PAGE_SIZE;
+    return listAppointments.slice(start, start + LIST_PAGE_SIZE);
+  }, [listAppointments, listPage]);
+
+  const paginatedListBySede = useMemo(() => {
+    const groups: Record<string, typeof paginatedListAppointments> = {};
+    for (const appt of paginatedListAppointments) {
+      const sede = appt.sede ?? "OTRAS";
+      if (!groups[sede]) groups[sede] = [];
+      groups[sede].push(appt);
+    }
+    const ordered: Array<{ sede: string; appts: typeof paginatedListAppointments }> = [];
+    for (const sede of SEDE_ORDER) {
+      if (groups[sede]?.length) ordered.push({ sede, appts: groups[sede] });
+    }
+    for (const sede of Object.keys(groups)) {
+      if (!SEDE_ORDER.includes(sede)) ordered.push({ sede, appts: groups[sede] });
+    }
+    return ordered;
+  }, [paginatedListAppointments]);
 
   return (
     <div>
@@ -614,7 +652,7 @@ export default function AgendamientoPage() {
             )}
             {/* Conteo de resultados */}
             <span className="text-sm text-gray-500">
-              {pendingVehicles.length} vehículo{pendingVehicles.length !== 1 ? "s" : ""} pendiente{pendingVehicles.length !== 1 ? "s" : ""}
+              {pendingVehiclesAll.length} vehículo{pendingVehiclesAll.length !== 1 ? "s" : ""} pendiente{pendingVehiclesAll.length !== 1 ? "s" : ""}
             </span>
           </div>
 
@@ -651,7 +689,7 @@ export default function AgendamientoPage() {
                 </div>
               </div>
             ))}
-            {pendingVehicles.length === 0 && (
+            {pendingVehiclesAll.length === 0 && (
               <div className="col-span-3 py-14 text-center">
                 <Search size={28} className="text-gray-200 mx-auto mb-2" />
                 <p className="text-sm text-gray-400">
@@ -662,6 +700,54 @@ export default function AgendamientoPage() {
               </div>
             )}
           </div>
+
+          {/* ── Paginación Pendientes ── */}
+          {pendingTotalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <button
+                onClick={() => setPendingPage((p) => Math.max(1, p - 1))}
+                disabled={pendingPage <= 1}
+                className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              {Array.from({ length: pendingTotalPages }, (_, i) => i + 1)
+                .filter((p) => p === 1 || p === pendingTotalPages || Math.abs(p - pendingPage) <= 2)
+                .reduce<(number | "...")[]>((acc, p, idx, arr) => {
+                  if (idx > 0 && p - (arr[idx - 1] ?? 0) > 1) acc.push("...");
+                  acc.push(p);
+                  return acc;
+                }, [])
+                .map((p, i) =>
+                  p === "..." ? (
+                    <span key={`dot-${i}`} className="text-xs text-gray-400 px-1">…</span>
+                  ) : (
+                    <button
+                      key={p}
+                      onClick={() => setPendingPage(p as number)}
+                      className={cn(
+                        "w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium transition-colors cursor-pointer",
+                        pendingPage === p
+                          ? "bg-gray-900 text-white"
+                          : "border border-gray-200 text-gray-600 hover:bg-gray-50"
+                      )}
+                    >
+                      {p}
+                    </button>
+                  )
+                )}
+              <button
+                onClick={() => setPendingPage((p) => Math.min(pendingTotalPages, p + 1))}
+                disabled={pendingPage >= pendingTotalPages}
+                className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              >
+                <ChevronRight size={14} />
+              </button>
+              <span className="text-xs text-gray-400 ml-2">
+                Pág. {pendingPage} de {pendingTotalPages}
+              </span>
+            </div>
+          )}
         </div>
       ) : (
         /* ── List tab ─────────────────────────────────────────────────── */
@@ -739,7 +825,7 @@ export default function AgendamientoPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {listBySede.map(({ sede, appts }) => {
+              {paginatedListBySede.map(({ sede, appts }) => {
                 const cfg = SEDE_CONFIG[sede];
                 return (
                   <div key={sede} className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
@@ -830,6 +916,54 @@ export default function AgendamientoPage() {
                   </div>
                 );
               })}
+
+              {/* ── Paginación Listado ── */}
+              {listTotalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 pt-2">
+                  <button
+                    onClick={() => setListPage((p) => Math.max(1, p - 1))}
+                    disabled={listPage <= 1}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  {Array.from({ length: listTotalPages }, (_, i) => i + 1)
+                    .filter((p) => p === 1 || p === listTotalPages || Math.abs(p - listPage) <= 2)
+                    .reduce<(number | "...")[]>((acc, p, idx, arr) => {
+                      if (idx > 0 && p - (arr[idx - 1] ?? 0) > 1) acc.push("...");
+                      acc.push(p);
+                      return acc;
+                    }, [])
+                    .map((p, i) =>
+                      p === "..." ? (
+                        <span key={`dot-${i}`} className="text-xs text-gray-400 px-1">…</span>
+                      ) : (
+                        <button
+                          key={p}
+                          onClick={() => setListPage(p as number)}
+                          className={cn(
+                            "w-8 h-8 flex items-center justify-center rounded-lg text-xs font-medium transition-colors cursor-pointer",
+                            listPage === p
+                              ? "bg-gray-900 text-white"
+                              : "border border-gray-200 text-gray-600 hover:bg-gray-50"
+                          )}
+                        >
+                          {p}
+                        </button>
+                      )
+                    )}
+                  <button
+                    onClick={() => setListPage((p) => Math.min(listTotalPages, p + 1))}
+                    disabled={listPage >= listTotalPages}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                  <span className="text-xs text-gray-400 ml-2">
+                    Pág. {listPage} de {listTotalPages}
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </div>

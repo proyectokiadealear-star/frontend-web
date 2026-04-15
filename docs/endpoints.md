@@ -178,6 +178,79 @@ clientComment   comentario del cliente (text field)
 | GET | `/reports/analytics` | Analytics globales: tiempos por fase, volumen por sede. Query: `?sede=X&from=2026-01-01&to=2026-02-28` | JEFE_TALLER, SOPORTE |
 | GET | `/reports/technician-performance/:uid` | Performance de tecnico (OTs, tiempo promedio) | JEFE_TALLER, SOPORTE |
 
+### Contrato BI usado por `DashboardBI` (`GET /api/bi/dashboard/general`)
+
+Para el dashboard BI de JEFE, frontend consume `GET /api/bi/dashboard/general` con este contrato:
+
+#### Query params
+
+```
+period=day|week|month   (requerido)
+from=YYYY-MM-DD         (opcional)
+to=YYYY-MM-DD           (opcional)
+timezone=IANA_TZ        (opcional, ej. America/Guayaquil)
+compare_mode=...        (opcional)
+filters[branchId]=...   (opcional)
+filters[channel]=...    (opcional)
+```
+
+> `period` es obligatorio y solo acepta `day`, `week` o `month`.
+
+#### Estructura de respuesta
+
+- `meta.range.from` / `meta.range.to`
+- `meta.compare_mode`
+- `meta.generated_at`
+- `meta.currency`
+- `kpis[]` en `snake_case` (ej: `id`, `formatted_value`, `last_updated_at`, `delta_pct`, `previous_value`)
+- `series[]` con `kpi_id`, `granularity`, `points[]` (`{ t, value }`)
+- `alerts[]` con `severity` (no `level`), más `recommended_action` y `detected_at`
+
+Ejemplo resumido:
+
+```json
+{
+  "meta": {
+    "period": "day",
+    "range": { "from": "2026-03-01", "to": "2026-03-31" },
+    "compare_mode": "previous_period",
+    "generated_at": "2026-04-14T16:00:00Z",
+    "currency": "USD",
+    "timezone": "America/Guayaquil"
+  },
+  "kpis": [
+    {
+      "id": "total",
+      "label": "Total",
+      "value": 120,
+      "formatted_value": "120",
+      "previous_value": 110,
+      "delta_pct": 9.09,
+      "last_updated_at": "2026-04-14T15:59:00Z"
+    }
+  ],
+  "series": [
+    {
+      "kpi_id": "by_status",
+      "granularity": "day",
+      "points": [{ "t": "AGENDADO", "value": 18 }]
+    }
+  ],
+  "alerts": [
+    {
+      "id": "a1",
+      "severity": "warning",
+      "title": "Pendiente",
+      "message": "...",
+      "recommended_action": "Priorizar revisión",
+      "detected_at": "2026-04-14T15:40:00Z"
+    }
+  ]
+}
+```
+
+Regla de frontend BI: **no recalcular fórmulas de KPIs/series**; renderizar los valores provistos por backend.
+
 ---
 
 ## 🔁 Flujo secuencial de endpoints por vehiculo

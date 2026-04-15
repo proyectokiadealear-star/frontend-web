@@ -9,13 +9,17 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  PieChart,
-  Pie,
-  Cell,
   LabelList,
 } from "recharts";
-import { getBIAnalytics, getSedes } from "@/lib/api";
-import type { BIAnalyticsData } from "@/lib/api";
+import { getBIDashboardGeneral, getSedes } from "@/lib/api";
+import { mapBIDashboardGeneralResponse } from "@/lib/biDashboardGeneral";
+import type {
+  BIOtifBreakdown,
+  BIDashboardGeneralPeriod,
+  BIDashboardGeneralSeries,
+  BIDashboardGeneralSeriesPoint,
+  BIDashboardGeneralVM,
+} from "@/lib/biDashboardGeneral";
 import type { CatalogItem } from "@/types";
 import { VehicleStatusLabel, AccessoryLabel } from "@/lib/constants";
 import type { VehicleStatusType, AccessoryKeyType } from "@/lib/constants";
@@ -24,7 +28,10 @@ import { RefreshCw, AlertCircle, TrendingUp, X } from "lucide-react";
 // ─── Brand constants ─────────────────────────────────────────
 const KIA_RED = "#e8382f";
 const OBSEQUIADO_COLOR = "#f59e0b";
-const SEDE_COLORS = ["#e8382f", "#0f172a", "#3b82f6"];
+const OTIF_PASS_COLOR = "#16a34a";
+const OTIF_FAIL_COLOR = "#dc2626";
+const OTIF_NON_EVALUABLE_COLOR = "#94a3b8";
+const TOP_MODELS_LIMIT = 10;
 
 const STATUS_HEX: Record<string, string> = {
   NO_FACTURADO: "#eab308",
@@ -44,13 +51,48 @@ const STATUS_HEX: Record<string, string> = {
   CEDIDO: "#9ca3af",
 };
 
-const MEDAL = ["🥇", "🥈", "🥉"];
+const FALLBACK_NEUTRAL_COLOR = "#94a3b8";
 
-const COLOR_PALETTE = [
-  "#e8382f", "#0f172a", "#3b82f6", "#f97316", "#8b5cf6",
-  "#06b6d4", "#10b981", "#f59e0b", "#ec4899", "#6366f1",
-  "#84cc16", "#14b8a6", "#94a3b8", "#eab308", "#9ca3af",
-];
+type DashboardBIKpi = { key: string; label: string; value: string; sub?: string };
+type TopModelDriverDimension = "sede" | "estado" | "color";
+
+function normalizeModelName(modelName: string): string {
+  return modelName.replace(/^KIA\s+/i, "").trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+
+function getSeriesPointsByKeys(
+  vm: BIDashboardGeneralVM | null,
+  keys: string[],
+): BIDashboardGeneralSeriesPoint[] {
+  if (!vm?.series?.length) return [];
+  const lowerKeys = keys.map((k) => k.toLowerCase());
+  for (const item of vm.series) {
+    if (lowerKeys.includes(item.kpi_id.toLowerCase()) && item.points?.length) {
+      return item.points;
+    }
+  }
+  return [];
+}
+
+function getStatusLabel(statusKey: string): string {
+  return VehicleStatusLabel[statusKey as VehicleStatusType] ?? statusKey;
+}
+
+function getStatusColor(statusKey: string): string {
+  return STATUS_HEX[statusKey] ?? FALLBACK_NEUTRAL_COLOR;
+}
+
+function getAccessoryDisplayName(rawKey: string): string {
+  const normalized = rawKey.toUpperCase() as AccessoryKeyType;
+  if (AccessoryLabel[normalized]) return AccessoryLabel[normalized];
+  return rawKey
+    .toLowerCase()
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
 
 // ─── Funnel pipeline order ───────────────────────────────────
 const FUNNEL_ORDER: VehicleStatusType[] = [
@@ -79,9 +121,14 @@ function todayISO(): string {
   const dd = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${dd}`;
 }
-function defaultFromISO(): string {
-  // Tendencia desde el inicio de operaciones: 01 Mar 2026
-  return "2026-03-01";
+function startOfCurrentMonthISO(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}-01`;
+}
+function monthKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 function daysAgoISO(n: number): string {
   const d = new Date();
@@ -95,14 +142,41 @@ function ytdISO(): string {
   const d = new Date();
   return `${d.getFullYear()}-01-01`;
 }
-function isoToApi(iso: string): string {
-  // YYYY-MM-DD → DD/MM/YYYY
-  const [y, m, d] = iso.split("-");
-  return `${d}/${m}/${y}`;
-}
 function isoToDisplay(iso: string): string {
   const d = new Date(iso + "T12:00:00");
   return d.toLocaleDateString("es-EC", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function formatTrendLabel(label: string, granularity: string): string {
+  if (granularity === "day") {
+    const d = new Date(`${label}T12:00:00`);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleDateString("es-EC", { day: "2-digit", month: "short" });
+    }
+    return label;
+  }
+
+  if (granularity === "month") {
+    const d = new Date(`${label}-01T12:00:00`);
+    if (!Number.isNaN(d.getTime())) {
+      return d.toLocaleDateString("es-EC", { month: "short", year: "2-digit" });
+    }
+    return label;
+  }
+
+  if (granularity === "week") {
+    const match = /^(\d{4})-W(\d{2})$/.exec(label);
+    if (!match) return label;
+    return `S${match[2]} ${match[1]}`;
+  }
+
+  return label;
+}
+
+function granularityToText(period: BIDashboardGeneralPeriod): string {
+  if (period === "day") return "Diario";
+  if (period === "week") return "Semanal";
+  return "Mensual";
 }
 
 // ─── Sub-components ──────────────────────────────────────────
@@ -205,20 +279,107 @@ function FilterChip({ label, value, onClear }: { label: string; value: string; o
   );
 }
 
+function OtifBreakdownCard({ otif }: { otif: BIOtifBreakdown }) {
+  const total = Math.max(otif.totalDeliveriesInPeriod, 1);
+  const passPct = (otif.passed / total) * 100;
+  const failPct = (otif.failed / total) * 100;
+  const nonEvaluablePct = (otif.noEvaluable / total) * 100;
+  const reasons = [
+    { key: "late", label: "Entrega fuera de fecha pactada", value: otif.failureReasons.late },
+    { key: "incomplete_docs", label: "Documentación incompleta", value: otif.failureReasons.incomplete_docs },
+    { key: "incomplete_accessories", label: "Accesorios pendientes", value: otif.failureReasons.incomplete_accessories },
+  ].filter((item) => item.value > 0);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wider text-gray-500">OTIF</p>
+          <p className="text-2xl font-bold text-gray-900">{otif.valuePct == null ? "-" : `${otif.valuePct.toFixed(1)}%`}</p>
+        </div>
+        <div className="rounded-lg border border-gray-200 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wider text-gray-500">Entregas OTIF / Entregas evaluadas</p>
+          <p className="text-base font-semibold text-gray-900">{otif.numerator}/{otif.denominator}</p>
+        </div>
+        <div className="rounded-lg border border-gray-200 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wider text-gray-500">Entregas en período</p>
+          <p className="text-base font-semibold text-gray-900">{otif.totalDeliveriesInPeriod}</p>
+        </div>
+        <div className="rounded-lg border border-gray-200 px-3 py-2">
+          <p className="text-[10px] uppercase tracking-wider text-gray-500">Sin datos suficientes</p>
+          <p className="text-base font-semibold text-gray-900">{otif.noEvaluable}</p>
+        </div>
+      </div>
+
+      <div>
+        <p className="text-[11px] text-gray-500 mb-2">Composición OTIF sobre entregas del período</p>
+        <div className="h-3 w-full rounded-full overflow-hidden bg-gray-100 flex">
+          <div style={{ width: `${passPct}%`, background: OTIF_PASS_COLOR }} title={`Cumple OTIF: ${otif.passed}`} />
+          <div style={{ width: `${failPct}%`, background: OTIF_FAIL_COLOR }} title={`No cumple OTIF: ${otif.failed}`} />
+          <div style={{ width: `${nonEvaluablePct}%`, background: OTIF_NON_EVALUABLE_COLOR }} title={`Sin datos suficientes: ${otif.noEvaluable}`} />
+        </div>
+        <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-gray-600">
+          <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: OTIF_PASS_COLOR }} />Cumple: {otif.passed}</span>
+          <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: OTIF_FAIL_COLOR }} />No cumple: {otif.failed}</span>
+          <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: OTIF_NON_EVALUABLE_COLOR }} />Sin datos suficientes: {otif.noEvaluable}</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="rounded-lg border border-gray-200 px-3 py-3">
+          <p className="text-xs font-semibold text-gray-800 mb-2">Cobertura de datos</p>
+          <p className="text-xs text-gray-600">Sin fecha pactada: <span className="font-semibold text-gray-900">{otif.missingPromisedDate}</span></p>
+          <p className="text-xs text-gray-600 mt-1">Datos insuficientes (docs/checklist): <span className="font-semibold text-gray-900">{otif.insufficientData}</span></p>
+          <p className="text-xs text-gray-400 mt-2">Evaluables: {otif.totalDeliveriesEvaluable} de {otif.totalDeliveriesInPeriod}</p>
+        </div>
+        <div className="rounded-lg border border-gray-200 px-3 py-3">
+          <p className="text-xs font-semibold text-gray-800 mb-2">Causas principales de no cumplimiento</p>
+          {!reasons.length ? (
+            <p className="text-xs text-gray-500">Sin causas de fail en el período.</p>
+          ) : (
+            <div className="space-y-2">
+              {reasons.map((reason) => {
+                const width = otif.failed > 0 ? Math.max((reason.value / otif.failed) * 100, 8) : 0;
+                return (
+                  <div key={reason.key}>
+                    <div className="flex items-center justify-between text-xs text-gray-600 mb-0.5">
+                      <span>{reason.label}</span>
+                      <span className="font-semibold text-gray-900">{reason.value}</span>
+                    </div>
+                    <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
+                      <div className="h-full rounded-full" style={{ width: `${width}%`, background: OTIF_FAIL_COLOR }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────
 export function DashboardBI() {
   const [sede, setSede] = useState("");
-  const [dateFrom, setDateFrom] = useState(defaultFromISO);
+  const [dateFrom, setDateFrom] = useState(startOfCurrentMonthISO);
   const [dateTo, setDateTo] = useState(todayISO);
+  const [granularity, setGranularity] = useState<BIDashboardGeneralPeriod>("day");
   const [activeModel, setActiveModel] = useState("");
   const [activeStatus, setActiveStatus] = useState("");
-  const [data, setData] = useState<BIAnalyticsData | null>(null);
+  const [data, setData] = useState<BIDashboardGeneralVM | null>(null);
+  const [topModelInsights, setTopModelInsights] = useState<BIDashboardGeneralVM | null>(null);
+  const [topModelInsightsLoading, setTopModelInsightsLoading] = useState(false);
+  const [topModelDriverDimension, setTopModelDriverDimension] = useState<TopModelDriverDimension>("sede");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   // [M6] Dynamic sedes list
   const [sedeOptions, setSedeOptions] = useState<CatalogItem[]>([]);
   // [Me5] Debounce ref for date inputs
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const userModifiedDatesRef = useRef(false);
+  const currentMonthRef = useRef(monthKey(new Date()));
 
   // Load sedes catalog once on mount [M6]
   useEffect(() => {
@@ -238,19 +399,23 @@ export function DashboardBI() {
     setLoading(true);
     setError(false);
     try {
-      const res = await getBIAnalytics({
-        sede: sede || undefined,
-        model: activeModel || undefined,
-        dateFrom: isoToApi(dateFrom),
-        dateTo: isoToApi(dateTo),
+      const res = await getBIDashboardGeneral({
+        period: granularity,
+        groupBy: granularity,
+        from: dateFrom,
+        to: dateTo,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+        filters: {
+          branchId: sede || undefined,
+        },
       });
-      setData(res.data);
+      setData(mapBIDashboardGeneralResponse(res.data));
     } catch {
       setError(true);
     } finally {
       setLoading(false);
     }
-  }, [sede, dateFrom, dateTo, activeModel]);
+  }, [sede, dateFrom, dateTo, granularity]);
 
   // [Me5] Debounce: only trigger fetchBI 600ms after the last state change
   useEffect(() => {
@@ -263,13 +428,27 @@ export function DashboardBI() {
     };
   }, [fetchBI]);
 
+  useEffect(() => {
+    const syncDefaultDateRange = () => {
+      const now = new Date();
+      const detectedMonth = monthKey(now);
+      if (detectedMonth === currentMonthRef.current) return;
+      currentMonthRef.current = detectedMonth;
+      if (userModifiedDatesRef.current) return;
+      setDateFrom(startOfCurrentMonthISO());
+      setDateTo(todayISO());
+    };
+
+    const intervalId = setInterval(syncDefaultDateRange, 60000);
+    syncDefaultDateRange();
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, []);
+
   const handleModelClick = (modelName: string) => {
     setActiveModel((prev) => (prev === modelName ? "" : modelName));
-  };
-
-  // REQ-BI-05: clicking a sede slice applies the sede filter (same state as header <select>)
-  const handleSedeClick = (sedeName: string) => {
-    setSede((prev) => (prev === sedeName ? "" : sedeName));
   };
 
   // REQ-BI-06: clicking a status row/bar toggles inline drill-down panel (no re-fetch)
@@ -277,100 +456,266 @@ export function DashboardBI() {
     setActiveStatus((prev) => (prev === statusKey ? "" : statusKey));
   };
 
+  const normalizedData = data;
+
+  const dashboardKpis = useMemo<DashboardBIKpi[]>(() => {
+    if (!normalizedData?.kpis?.length) return [];
+    return normalizedData.kpis.slice(0, 5).map((kpi) => ({
+      key: kpi.id,
+      label: kpi.label,
+      value: kpi.formatted_value,
+      sub: kpi.subtitle,
+    }));
+  }, [normalizedData]);
+
+  const seriesByKey = useMemo<Map<string, BIDashboardGeneralSeries>>(() => {
+    const entries: Array<[string, BIDashboardGeneralSeries]> =
+      normalizedData?.series?.map((s) => [s.kpi_id.toLowerCase(), s]) ?? [];
+    return new Map<string, BIDashboardGeneralSeries>(entries);
+  }, [normalizedData]);
+
+  const getPointsBySeriesKeys = useCallback((keys: string[]): BIDashboardGeneralSeriesPoint[] => {
+    for (const key of keys) {
+      const points = seriesByKey.get(key)?.points;
+      if (points?.length) return points;
+    }
+    return [];
+  }, [seriesByKey]);
+
+  const getSeriesByKeys = useCallback((keys: string[]): BIDashboardGeneralSeries | null => {
+    for (const key of keys) {
+      const found = seriesByKey.get(key);
+      if (found) return found;
+    }
+    return null;
+  }, [seriesByKey]);
+
+  const mainSeries = useMemo<BIDashboardGeneralSeriesPoint[]>(() => {
+    return getPointsBySeriesKeys(["pipeline_status", "pipeline"]);
+  }, [getPointsBySeriesKeys]);
+
   // ── Derived data ──────────────────────────────────────────
   // REQ-BI-01: always show all 15 pipeline statuses (including those with 0 vehicles)
   const funnelData = useMemo(() => {
-    if (!data) return [];
-    return FUNNEL_ORDER
-      .map((key) => ({
-        key,
-        name: VehicleStatusLabel[key],
-        value: data.byStatus[key] ?? 0,
-        fill: STATUS_HEX[key] ?? "#94a3b8",
-      }));
-  }, [data]);
+    if (!mainSeries.length) return [];
+    return mainSeries
+      .map((point, idx) => {
+        const fallbackKey = FUNNEL_ORDER[idx] ?? point.t;
+        return {
+          key: fallbackKey,
+          name: point.t,
+          value: point.value,
+          fill: getStatusColor(fallbackKey),
+        };
+      })
+      .sort((a, b) => b.value - a.value);
+  }, [mainSeries]);
 
   const maxFunnel = useMemo(
     () => funnelData.reduce((max, s) => Math.max(max, s.value), 0) || 1,
     [funnelData]
   );
 
-  const deliveryRate = useMemo(() => {
-    if (!data) return 0;
-    // REQ-DATE-04: use vehiclesCreatedInPeriod as denominator so both values
-    // share the same time window — avoids comparing period deliveries vs historical total
-    const denominator = data.vehiclesCreatedInPeriod || 1;
-    return Math.round((data.vehiclesDelivered / denominator) * 100);
-  }, [data]);
-
-  const statusData = useMemo(() => {
-    if (!data) return [];
-    return Object.entries(data.byStatus)
-      .map(([key, value]) => ({
-        key,
-        name: VehicleStatusLabel[key as VehicleStatusType] ?? key,
-        value,
-        fill: STATUS_HEX[key] ?? "#94a3b8",
+  const modelData = useMemo(() => {
+    const points = getPointsBySeriesKeys(["by_model", "models"]);
+    if (!points.length) return [];
+    const sanitized = points
+      .filter((point) => point.value > 0)
+      .map((point) => ({
+        name: point.t.replace(/^KIA\s+/i, "").trim(),
+        value: point.value,
       }))
       .sort((a, b) => b.value - a.value);
-  }, [data]);
 
-  const modelData = useMemo(() => {
-    if (!data) return [];
-    return Object.entries(data.byModel)
-      .filter(([, v]) => v > 0)
-      .sort(([, a], [, b]) => b - a)
-      .map(([name, value]) => ({
-        name: name.replace(/^KIA\s+/i, ""),
-        value,
-        fill: activeModel && name.replace(/^KIA\s+/i, "") !== activeModel ? "#e5e7eb" : KIA_RED,
-      }));
-  }, [data, activeModel]);
+    const total = sanitized.reduce((sum, item) => sum + item.value, 0);
+    const max = sanitized[0]?.value ?? 1;
 
-  const sedeChartData = useMemo(() => {
-    if (!data) return [];
-    const total = Object.values(data.bySede).reduce((s, v) => s + v, 0) || 1;
-    return Object.entries(data.bySede).map(([name, value]) => ({
-      name,
-      value,
-      pct: Math.round((value / total) * 100),
-    }));
-  }, [data]);
+    return sanitized.slice(0, TOP_MODELS_LIMIT).map((item, index) => {
+      const isActive = activeModel === item.name;
+      return {
+        rank: index + 1,
+        name: item.name,
+        value: item.value,
+        sharePct: total > 0 ? (item.value / total) * 100 : 0,
+        widthPct: max > 0 ? Math.round((item.value / max) * 100) : 0,
+        fill: activeModel && !isActive ? "#e5e7eb" : KIA_RED,
+      };
+    });
+  }, [getPointsBySeriesKeys, activeModel]);
 
-  const accData = useMemo(() => {
-    if (!data) return [];
-    // Backend stores keys in lowercase (boton_encendido), frontend labels expect UPPERCASE.
-    // Normalise to UPPERCASE before looking up AccessoryLabel.
-    // Only include rows that have at least 1 unit vendido or obsequiado.
-    return Object.entries(data.accessories.byKey)
-      .map(([key, vals]) => {
-        const normKey = key.toUpperCase() as AccessoryKeyType;
-        return {
-          name: AccessoryLabel[normKey] ?? key,
-          Vendido: vals.VENDIDO,
-          Obsequiado: vals.OBSEQUIADO,
-        };
-      })
-      .filter((r) => r.Vendido > 0 || r.Obsequiado > 0)
-      .sort((a, b) => (b.Vendido + b.Obsequiado) - (a.Vendido + a.Obsequiado));
-  }, [data]);
+  const topModelTotalVolume = useMemo(() => {
+    return modelData.reduce((sum, item) => sum + item.value, 0);
+  }, [modelData]);
 
-  const colorChartData = useMemo(() => {
-    if (!data?.byColor) return [];
-    return Object.entries(data.byColor)
-      .filter(([, v]) => v > 0)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 12)
-      .map(([name, value]) => ({ name, value }));
-  }, [data]);
+  const topModelOptions = useMemo(() => modelData.map((item) => item.name), [modelData]);
+
+  const modelFilterOptions = useMemo(() => {
+    if (!activeModel || topModelOptions.includes(activeModel)) return topModelOptions;
+    return [activeModel, ...topModelOptions];
+  }, [activeModel, topModelOptions]);
+
+  const selectedTopModel = useMemo(() => {
+    if (!modelData.length) return null;
+    return modelData.find((item) => item.name === activeModel) ?? modelData[0];
+  }, [modelData, activeModel]);
+
+  const topModelName = selectedTopModel?.name ?? "";
+  const focusedModelName = activeModel || topModelName;
+
+  const accessoryOverview = useMemo(() => {
+    const accessories = normalizedData?.accessories;
+    if (!accessories) {
+      return {
+        list: [] as Array<{
+          key: string;
+          name: string;
+          Vendido: number;
+          Obsequiado: number;
+          NoAplica: number;
+        }>,
+        totalAccessories: 0,
+        rankedAccessories: 0,
+        totalVendido: 0,
+        totalObsequiado: 0,
+        totalNoAplica: 0,
+      };
+    }
+
+    const byKeyEntries = Object.entries(accessories.byKey ?? {}).map(([rawKey, counters]) => {
+      return {
+        key: rawKey,
+        name: getAccessoryDisplayName(rawKey),
+        Vendido: counters?.VENDIDO ?? 0,
+        Obsequiado: counters?.OBSEQUIADO ?? 0,
+        NoAplica: counters?.NO_APLICA ?? 0,
+      };
+    });
+
+    const list = [...byKeyEntries].sort((a, b) => {
+      const totalA = a.Vendido + a.Obsequiado + a.NoAplica;
+      const totalB = b.Vendido + b.Obsequiado + b.NoAplica;
+      if (totalB !== totalA) return totalB - totalA;
+      return a.name.localeCompare(b.name, "es");
+    });
+
+    const computedTotalVendido = byKeyEntries.reduce((sum, item) => sum + item.Vendido, 0);
+    const computedTotalObsequiado = byKeyEntries.reduce((sum, item) => sum + item.Obsequiado, 0);
+    const computedTotalNoAplica = byKeyEntries.reduce((sum, item) => sum + item.NoAplica, 0);
+
+    return {
+      list,
+      totalAccessories: byKeyEntries.length,
+      rankedAccessories: list.length,
+      totalVendido: accessories.totalVendido ?? computedTotalVendido,
+      totalObsequiado: accessories.totalObsequiado ?? computedTotalObsequiado,
+      totalNoAplica: accessories.totalNoAplica ?? computedTotalNoAplica,
+    };
+  }, [normalizedData]);
 
   const rotationChartData = useMemo(() => {
-    if (!data?.byModelRotation) return [];
-    return Object.entries(data.byModelRotation)
-      .map(([name, val]) => ({ name, avgDays: val.avgDays, count: val.count }))
+    const points = getPointsBySeriesKeys(["model_rotation_avg_days", "rotation"]);
+    if (!points.length) return [];
+    return points
+      .map((p) => ({ name: p.t, avgDays: p.value, count: 0 }))
       .sort((a, b) => b.avgDays - a.avgDays)
       .slice(0, 8);
-  }, [data]);
+  }, [getPointsBySeriesKeys]);
+
+  const trendSeries = useMemo(() => {
+    return getSeriesByKeys(["monthly_deliveries", "deliveries_trend"]);
+  }, [getSeriesByKeys]);
+
+  useEffect(() => {
+    if (!focusedModelName) {
+      setTopModelInsights(null);
+      return;
+    }
+
+    let alive = true;
+
+    const loadTopModelInsights = async () => {
+      setTopModelInsightsLoading(true);
+      try {
+        const response = await getBIDashboardGeneral({
+          period: granularity,
+          groupBy: granularity,
+          from: dateFrom,
+          to: dateTo,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+          filters: {
+            branchId: sede || undefined,
+            channel: focusedModelName,
+          },
+        });
+
+        if (!alive) return;
+        setTopModelInsights(mapBIDashboardGeneralResponse(response.data));
+      } catch {
+        if (!alive) return;
+        setTopModelInsights(null);
+      } finally {
+        if (alive) setTopModelInsightsLoading(false);
+      }
+    };
+
+    loadTopModelInsights();
+
+    return () => {
+      alive = false;
+    };
+  }, [focusedModelName, dateFrom, dateTo, granularity, sede]);
+
+  const topModelDrivers = useMemo(() => {
+    if (!topModelInsights) return [];
+
+    if (topModelDriverDimension === "sede") {
+      return getSeriesPointsByKeys(topModelInsights, ["by_sede", "sedes"]).map((point) => ({
+        key: point.t,
+        label: point.t,
+        value: point.value,
+      })).sort((a, b) => b.value - a.value).slice(0, 8);
+    }
+
+    if (topModelDriverDimension === "estado") {
+      return getSeriesPointsByKeys(topModelInsights, ["pipeline_status", "pipeline"]).map((point) => ({
+        key: point.t,
+        label: getStatusLabel(point.t),
+        value: point.value,
+      })).sort((a, b) => b.value - a.value).slice(0, 8);
+    }
+
+    return getSeriesPointsByKeys(topModelInsights, ["by_color", "colors"]).map((point) => ({
+      key: point.t,
+      label: point.t,
+      value: point.value,
+    })).sort((a, b) => b.value - a.value).slice(0, 8);
+  }, [topModelInsights, topModelDriverDimension]);
+
+  const topModelDeliveryPeriods = useMemo(() => {
+    if (!topModelInsights) return [];
+    const points = getSeriesPointsByKeys(topModelInsights, ["monthly_deliveries", "deliveries_trend"]);
+    if (!points.length) return [];
+
+    return points
+      .filter((point) => point.value > 0)
+      .slice(-8)
+      .map((point) => ({
+        key: point.t,
+        periodLabel: formatTrendLabel(point.t, granularity),
+        value: point.value,
+      }));
+  }, [topModelInsights, granularity]);
+
+  const otifBreakdown = normalizedData?.otifBreakdown;
+
+  const trendChartData = useMemo(() => {
+    if (!trendSeries?.points?.length) return [];
+    return trendSeries.points.map((point) => ({
+      t: point.t,
+      label: formatTrendLabel(point.t, trendSeries.granularity),
+      value: point.value,
+    }));
+  }, [trendSeries]);
 
   // ── Loading / Error ────────────────────────────────────────
   const showSkeleton = loading || error;
@@ -400,6 +745,16 @@ export function DashboardBI() {
           {/* Filters */}
           <div className="flex flex-wrap items-center gap-2">
             <select
+              value={granularity}
+              onChange={(e) => setGranularity(e.target.value as BIDashboardGeneralPeriod)}
+              className="text-xs bg-white/10 border border-white/20 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-white/30 cursor-pointer"
+            >
+              <option value="day" className="text-gray-900">Diario</option>
+              <option value="week" className="text-gray-900">Semanal</option>
+              <option value="month" className="text-gray-900">Mensual</option>
+            </select>
+
+            <select
               value={sede}
               onChange={(e) => setSede(e.target.value)}
               className="text-xs bg-white/10 border border-white/20 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-white/30 cursor-pointer"
@@ -416,7 +771,10 @@ export function DashboardBI() {
               type="date"
               value={dateFrom}
               max={dateTo}
-              onChange={(e) => setDateFrom(e.target.value)}
+              onChange={(e) => {
+                userModifiedDatesRef.current = true;
+                setDateFrom(e.target.value);
+              }}
               className="text-xs bg-white/10 border border-white/20 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-white/30 cursor-pointer"
             />
             <span className="text-white/40 text-xs shrink-0">→</span>
@@ -425,7 +783,10 @@ export function DashboardBI() {
               value={dateTo}
               min={dateFrom}
               max={todayISO()}
-              onChange={(e) => setDateTo(e.target.value)}
+              onChange={(e) => {
+                userModifiedDatesRef.current = true;
+                setDateTo(e.target.value);
+              }}
               className="text-xs bg-white/10 border border-white/20 text-white rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-white/30 cursor-pointer"
             />
 
@@ -438,14 +799,22 @@ export function DashboardBI() {
               ] as const).map((p) => (
                 <button
                   key={p.label}
-                  onClick={() => { setDateFrom(daysAgoISO(p.days)); setDateTo(todayISO()); }}
+                  onClick={() => {
+                    userModifiedDatesRef.current = true;
+                    setDateFrom(daysAgoISO(p.days));
+                    setDateTo(todayISO());
+                  }}
                   className="text-[10px] font-semibold bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-md px-2 py-1 transition-colors cursor-pointer"
                 >
                   {p.label}
                 </button>
               ))}
               <button
-                onClick={() => { setDateFrom(ytdISO()); setDateTo(todayISO()); }}
+                onClick={() => {
+                  userModifiedDatesRef.current = true;
+                  setDateFrom(ytdISO());
+                  setDateTo(todayISO());
+                }}
                 className="text-[10px] font-semibold bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-md px-2 py-1 transition-colors cursor-pointer"
               >
                 YTD
@@ -470,26 +839,24 @@ export function DashboardBI() {
         <div className="flex flex-wrap items-center gap-2 mb-5 -mt-2">
           <p className="text-[10px] text-white/30">
             {isoToDisplay(dateFrom)} — {isoToDisplay(dateTo)}
+            {` · ${granularityToText(granularity)}`}
             {sede ? ` · ${sede}` : " · Todas las sedes"}
           </p>
-          {(activeModel || activeStatus || sede) && (
+          {(activeStatus || sede) && (
             <span className="text-white/20 text-[10px]">|</span>
           )}
           {sede && (
             <FilterChip label="Sede" value={sede} onClear={() => setSede("")} />
           )}
-          {activeModel && (
-            <FilterChip label="Modelo" value={activeModel} onClear={() => setActiveModel("")} />
-          )}
           {activeStatus && (() => {
-            const label = VehicleStatusLabel[activeStatus as VehicleStatusType] ?? activeStatus;
+            const label = getStatusLabel(activeStatus);
             return (
               <FilterChip label="Estado" value={label} onClear={() => setActiveStatus("")} />
             );
           })()}
-          {(activeModel || activeStatus || sede) && (
+          {(activeStatus || sede) && (
             <button
-              onClick={() => { setActiveModel(""); setActiveStatus(""); setSede(""); }}
+              onClick={() => { setActiveStatus(""); setSede(""); }}
               className="text-[10px] text-white/40 hover:text-white/70 underline cursor-pointer"
             >
               Limpiar todos
@@ -518,41 +885,110 @@ export function DashboardBI() {
               Reintentar
             </button>
           </div>
-        ) : data ? (
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-6">
-            <KpiBlock
-              label="Inventario total"
-              value={data.total}
-              sub="vehículos activos"
-            />
-            <KpiBlock
-              label="Entregados"
-              value={data.vehiclesDelivered}
-              sub="en el período"
-            />
-            <KpiBlock
-              label="Ingresos al sistema"
-              value={data.vehiclesCreatedInPeriod ?? 0}
-              sub="ingresados en el período"
-            />
-            <KpiBlock
-              label="Tasa de entrega"
-              value={`${deliveryRate}%`}
-              sub="entregados / ingresos"
-            />
-            <KpiBlock
-              label="Prom. entrega"
-              value={data.avgDaysToDelivery != null ? `${data.avgDaysToDelivery}d` : "—"}
-              sub={data.medianDaysToDelivery != null ? `mediana ${data.medianDaysToDelivery}d` : "sin datos"}
-            />
-          </div>
-        ) : null}
+          ) : normalizedData ? (
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-6">
+              {dashboardKpis.length > 0 ? (
+                dashboardKpis.map((kpi) => (
+                  <KpiBlock key={kpi.key} label={kpi.label} value={kpi.value} sub={kpi.sub} />
+                ))
+              ) : (
+                <>
+                  <KpiBlock label="Sin KPIs" value="—" sub="Respuesta sin KPIs" />
+                  <KpiBlock label="—" value="—" />
+                  <KpiBlock label="—" value="—" />
+                  <KpiBlock label="—" value="—" />
+                  <KpiBlock label="—" value="—" />
+                </>
+              )}
+            </div>
+          ) : null}
       </div>
 
-      {/* ── Section 2: Embudo + Sedes ────────────────────── */}
-      <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-5">
+      {/* Alerts section from backend contract */}
+      {!showSkeleton && !!normalizedData?.alerts?.length && (
+        <div className="mt-5">
+          <BICard>
+            <SectionHeader>Alertas</SectionHeader>
+            <div className="space-y-2">
+              {normalizedData.alerts.map((alert) => {
+                const alertColor =
+                  alert.severity === "critical"
+                    ? "#dc2626"
+                    : alert.severity === "warning"
+                      ? "#d97706"
+                      : alert.severity === "success"
+                        ? "#16a34a"
+                        : "#2563eb";
+                return (
+                  <div
+                    key={alert.id}
+                    className="rounded-lg border px-3 py-2"
+                    style={{ borderColor: `${alertColor}66`, background: `${alertColor}10` }}
+                  >
+                    <p className="text-xs font-semibold" style={{ color: alertColor }}>
+                      {alert.title}
+                    </p>
+                    {alert.message && (
+                      <p className="text-xs text-gray-600 mt-0.5">{alert.message}</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </BICard>
+        </div>
+      )}
 
-        {/* Embudo de flujo vehicular */}
+      {!showSkeleton && !!otifBreakdown && (
+        <div className="mt-5">
+          <BICard>
+            <SectionHeader>Desglose OTIF</SectionHeader>
+            <p className="text-[10px] text-gray-400 -mt-3 mb-3">
+              OTIF muestra el porcentaje de entregas que se realizaron en fecha pactada y completas.
+            </p>
+            <OtifBreakdownCard otif={otifBreakdown} />
+          </BICard>
+        </div>
+      )}
+
+      {/* Tendencia entregas */}
+      <div className="mt-5">
+        <BICard>
+          <SectionHeader>Tendencia de entregas</SectionHeader>
+          <p className="text-[10px] text-gray-400 -mt-3 mb-3">
+            Serie {trendSeries ? granularityToText(trendSeries.granularity as BIDashboardGeneralPeriod).toLowerCase() : granularityToText(granularity).toLowerCase()} en el periodo filtrado
+          </p>
+          {showSkeleton ? (
+            <ChartSkeleton h={220} />
+          ) : !trendChartData.length ? (
+            <p className="text-sm text-gray-400 text-center py-12">Sin tendencia disponible</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={trendChartData} margin={{ top: 8, right: 8, left: -12, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 10, fill: "#64748b" }}
+                  axisLine={false}
+                  tickLine={false}
+                  minTickGap={18}
+                />
+                <YAxis
+                  allowDecimals={false}
+                  tick={{ fontSize: 10, fill: "#94a3b8" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip content={<ChartTooltip />} labelFormatter={(_, payload) => payload?.[0]?.payload?.t ?? ""} />
+                <Bar dataKey="value" name="Entregas" fill={KIA_RED} radius={[4, 4, 0, 0]} maxBarSize={34} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </BICard>
+      </div>
+
+      {/* ── Section 2: Embudo ─────────────────────────────── */}
+      <div className="mt-5">
         <BICard>
           <SectionHeader>Embudo de flujo vehicular</SectionHeader>
           {/* REQ-DATE-06: explain that the funnel shows active inventory, not period activity */}
@@ -599,414 +1035,304 @@ export function DashboardBI() {
             </div>
           )}
         </BICard>
+      </div>
 
-        {/* Distribución por sede */}
+      {/* ── Section 3: Top modelos ────────────────────────── */}
+      <div className="mt-5">
         <BICard>
-          <SectionHeader>Distribución por sede</SectionHeader>
-          {showSkeleton ? (
-            <ChartSkeleton h={200} />
-          ) : sede ? (
-            /* Cuando hay filtro de sede activo, el gráfico no aporta valor */
-            <div className="flex flex-col items-center justify-center py-12 gap-2">
-              <span className="text-2xl">🏢</span>
-              <p className="text-sm font-semibold text-gray-700">{sede}</p>
-              <p className="text-xs text-gray-400 text-center">
-                Filtrando por sede — la distribución no aplica
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <div className="lg:col-span-4">
+              <SectionHeader>Top modelos</SectionHeader>
+              <p className="text-[10px] text-gray-400 -mt-3 mb-4">
+                Ranking de modelos por entregas y participación en el período seleccionado.
               </p>
-            </div>
-          ) : !sedeChartData.length ? (
-            <p className="text-sm text-gray-400 text-center py-16">Sin datos</p>
-          ) : (
-            <div className="flex flex-col sm:flex-row items-center gap-4">
-              <div className="shrink-0">
-                <ResponsiveContainer width={160} height={160}>
-                  <PieChart>
-                    <Pie
-                      data={sedeChartData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={45}
-                      outerRadius={72}
-                      paddingAngle={2}
-                      dataKey="value"
-                      cursor="pointer"
-                      onClick={(entry: { name?: string }) => {
-                        if (entry?.name) handleSedeClick(entry.name);
-                      }}
-                    >
-                      {sedeChartData.map((_, i) => (
-                        <Cell key={i} fill={SEDE_COLORS[i % SEDE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip content={<ChartTooltip />} />
-                  </PieChart>
-                </ResponsiveContainer>
+
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-[10px] uppercase tracking-wider text-gray-500 shrink-0">Modelo</span>
+                <select
+                  value={activeModel}
+                  onChange={(e) => setActiveModel(e.target.value)}
+                  disabled={showSkeleton || !modelData.length}
+                  className="text-[11px] bg-white border border-gray-200 text-gray-700 rounded-md px-2 py-1 focus:outline-none disabled:opacity-60"
+                >
+                  <option value="">Todos los modelos</option>
+                  {modelFilterOptions.map((modelName) => (
+                    <option key={modelName} value={modelName}>
+                      {modelName}
+                    </option>
+                  ))}
+                </select>
+                {activeModel && (
+                  <button
+                    onClick={() => setActiveModel("")}
+                    className="text-[10px] text-gray-500 hover:text-gray-700 underline cursor-pointer"
+                  >
+                    Quitar
+                  </button>
+                )}
               </div>
-              <div className="flex-1 min-w-0 space-y-2.5 w-full">
-                {sedeChartData.map((item, i) => (
-                  <div key={item.name}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span
-                        className="text-xs font-medium text-gray-700 truncate max-w-[65%]"
-                        title={item.name}
-                      >
-                        {item.name}
-                      </span>
-                      <span className="text-xs font-bold text-gray-900 shrink-0">
-                        {item.value}{" "}
-                        <span className="font-normal text-gray-400">({item.pct}%)</span>
-                      </span>
-                    </div>
-                    <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all duration-700"
-                        style={{
-                          width: `${item.pct}%`,
-                          background: SEDE_COLORS[i % SEDE_COLORS.length],
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </BICard>
-      </div>
 
-      {/* ── Section 3: Estados + Modelos ─────────────────── */}
-      <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {showSkeleton ? (
+                <div className="space-y-2">
+                  <div className="h-16 rounded-lg bg-gray-100 animate-pulse" />
+                  <div className="h-16 rounded-lg bg-gray-100 animate-pulse" />
+                </div>
+              ) : !modelData.length ? (
+                <p className="text-sm text-gray-400 py-6">Sin datos comparables</p>
+              ) : (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+                  <p className="text-[10px] uppercase tracking-wider text-gray-500">Insight principal</p>
+                  <p className="text-sm font-semibold text-gray-900 mt-1">
+                    #{selectedTopModel?.rank ?? 1} {selectedTopModel?.name}
+                  </p>
+                  <p className="text-2xl font-bold text-gray-900 leading-none mt-1">
+                    {selectedTopModel?.value ?? 0}
+                    <span className="text-sm font-medium text-gray-500 ml-1">entregas</span>
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Participación: {(selectedTopModel?.sharePct ?? 0).toFixed(1)}% del total del ranking ({topModelTotalVolume.toLocaleString("es-EC")})
+                  </p>
 
-        {/* Estado de flota */}
-        <BICard>
-          <SectionHeader>Estado de flota</SectionHeader>
-          {showSkeleton ? (
-            <ChartSkeleton h={280} />
-          ) : !statusData.length ? (
-            <p className="text-sm text-gray-400 text-center py-16">Sin datos</p>
-          ) : (
-            <div className="space-y-2">
-              {statusData.map((item) => {
-                const max = statusData[0]?.value || 1;
-                const pct = Math.round((item.value / max) * 100);
-                const isActive = activeStatus === item.key;
-                return (
-                  <div
-                    key={item.key}
-                    className={`flex items-center gap-2.5 min-w-0 cursor-pointer rounded-md px-1 py-0.5 transition-colors ${isActive ? "bg-gray-100" : "hover:bg-gray-50"}`}
-                    onClick={() => handleStatusClick(item.key)}
-                    title="Click para ver detalle"
-                  >
-                    <div
-                      className="w-2 h-2 rounded-full shrink-0"
-                      style={{ background: item.fill }}
-                    />
-                    <span
-                      className="text-xs text-gray-600 w-36 shrink-0 truncate"
-                      title={item.name}
-                    >
-                      {item.name}
-                    </span>
-                    <div className="flex-1 h-4 bg-gray-100 rounded-md overflow-hidden">
-                      <div
-                        className="h-full rounded-md transition-all duration-700 flex items-center justify-end pr-2"
-                        style={{
-                          width: `${Math.max(pct, 4)}%`,
-                          background: item.fill,
-                        }}
-                      />
-                    </div>
-                    <span className="text-xs font-bold text-gray-900 w-6 text-right shrink-0">
-                      {item.value}
-                    </span>
-                  </div>
-                );
-              })}
-
-              {/* REQ-BI-07: inline drill-down panel */}
-              {activeStatus && (() => {
-                const selected = statusData.find((s) => s.key === activeStatus);
-                if (!selected) return null;
-                return (
-                  <div
-                    className="mt-3 rounded-lg border px-4 py-3 flex items-center justify-between gap-3"
-                    style={{ borderColor: selected.fill, background: `${selected.fill}12` }}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: selected.fill }} />
-                      <div>
-                        <p className="text-xs font-semibold text-gray-800">{selected.name}</p>
-                        <p className="text-[10px] text-gray-400">{selected.key}</p>
-                      </div>
-                    </div>
-                    <span className="text-2xl font-bold tabular-nums" style={{ color: selected.fill }}>
-                      {selected.value}
-                    </span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setActiveStatus(""); }}
-                      className="text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-        </BICard>
-
-        {/* Top modelos — click para filtrar */}
-        <BICard>
-          <div className="flex items-center justify-between mb-0">
-            <SectionHeader>Top modelos</SectionHeader>
-            {activeModel && (
-              <span className="text-[10px] text-gray-400 mb-4">
-                Click para deseleccionar
-              </span>
-            )}
-          </div>
-          <p className="text-[10px] text-gray-400 -mt-3 mb-3">
-            Haz click en un modelo para filtrar todos los datos
-          </p>
-          {showSkeleton ? (
-            <div className="space-y-2">
-              {[1,2,3,4,5,6].map((i) => (
-                <div key={i} className="h-7 rounded-lg bg-gray-100 animate-pulse" />
-              ))}
-            </div>
-          ) : !modelData.length ? (
-            <p className="text-sm text-gray-400 text-center py-16">Sin datos</p>
-          ) : (
-            <div className="space-y-1">
-              {modelData.map((item) => {
-                const maxVal = modelData[0]?.value || 1;
-                const pct = Math.round((item.value / maxVal) * 100);
-                const isActive = activeModel === item.name;
-                return (
-                  <div
-                    key={item.name}
-                    onClick={() => handleModelClick(item.name)}
-                    className="group py-1.5 px-2 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
-                    style={{ opacity: activeModel && !isActive ? 0.45 : 1 }}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span
-                        className="text-[11px] font-medium truncate max-w-[75%]"
-                        style={{ color: isActive ? KIA_RED : "#374151" }}
-                      >
-                        {item.name}
-                      </span>
-                      <span
-                        className="text-[11px] font-bold tabular-nums shrink-0"
-                        style={{ color: isActive ? KIA_RED : "#6b7280" }}
-                      >
-                        {item.value}
-                      </span>
-                    </div>
-                    <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{ width: `${pct}%`, background: isActive || !activeModel ? KIA_RED : "#e5e7eb" }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </BICard>
-      </div>
-
-      {/* ── Section 4: Accesorios + Top Asesores ─────────── */}
-      <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-5">
-
-        {/* Accesorios instalados — compact list */}
-        <BICard>
-          <SectionHeader>Accesorios instalados</SectionHeader>
-          <div className="flex items-center gap-4 mb-3">
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: KIA_RED }} />
-              <span className="text-[11px] text-gray-500">Vendido</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: OBSEQUIADO_COLOR }} />
-              <span className="text-[11px] text-gray-500">Obsequiado</span>
-            </div>
-            {data && (
-              <span className="text-[11px] text-gray-400 ml-auto shrink-0">
-                Total vendido: <strong className="text-gray-700">{data.accessories.totalVendido}</strong>
-              </span>
-            )}
-          </div>
-          {showSkeleton ? (
-            <div className="space-y-2">
-              {[1,2,3,4,5,6,7,8].map((i) => (
-                <div key={i} className="h-7 rounded-lg bg-gray-100 animate-pulse" />
-              ))}
-            </div>
-          ) : !accData.length ? (
-            <p className="text-sm text-gray-400 text-center py-10">Sin accesorios registrados</p>
-          ) : (
-            <div className="space-y-1">
-              {accData.map((item) => {
-                const total = item.Vendido + item.Obsequiado;
-                const maxTotal = accData.reduce((m, a) => Math.max(m, a.Vendido + a.Obsequiado), 0) || 1;
-                const pctV = Math.round((item.Vendido / maxTotal) * 100);
-                const pctO = Math.round((item.Obsequiado / maxTotal) * 100);
-                return (
-                  <div key={item.name} className="group py-1.5 px-2 rounded-lg hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[11px] font-medium text-gray-700 truncate max-w-[60%]">{item.name}</span>
-                      <span className="text-[11px] text-gray-400 tabular-nums shrink-0">
-                        <span className="font-semibold" style={{ color: KIA_RED }}>{item.Vendido}</span>
-                        {item.Obsequiado > 0 && (
-                          <span className="text-gray-400"> + <span className="font-semibold" style={{ color: OBSEQUIADO_COLOR }}>{item.Obsequiado}</span></span>
-                        )}
-                        {total > 0 && <span className="text-gray-300 ml-1">({total})</span>}
-                      </span>
-                    </div>
-                    {total > 0 && (
-                      <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden flex">
-                        <div className="h-full rounded-l-full transition-all" style={{ width: `${pctV}%`, background: KIA_RED }} />
-                        <div className="h-full transition-all" style={{ width: `${pctO}%`, background: OBSEQUIADO_COLOR }} />
+                  <div className="mt-3 pt-3 border-t border-gray-200">
+                    <p className="text-[10px] uppercase tracking-wider text-gray-500">
+                      Días con entregas de este modelo (en el período filtrado)
+                    </p>
+                    {showSkeleton || topModelInsightsLoading ? (
+                      <p className="text-xs text-gray-400 mt-1">Cargando detalle...</p>
+                    ) : !topModelDeliveryPeriods.length ? (
+                      <p className="text-xs text-gray-500 mt-1">No hay días con entregas registradas para este modelo.</p>
+                    ) : (
+                      <div className="mt-2 space-y-1.5">
+                        {topModelDeliveryPeriods.map((item) => (
+                          <div key={item.key} className="flex items-center justify-between text-[11px] text-gray-600">
+                            <span>{item.periodLabel}</span>
+                            <span className="font-semibold text-gray-900">{item.value} entregas</span>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
-                );
-              })}
+                </div>
+              )}
             </div>
-          )}
+
+            <div className="lg:col-span-8">
+              {showSkeleton ? (
+                <div className="space-y-2 mt-3 lg:mt-0">
+                  {[1,2,3,4,5,6,7,8].map((i) => (
+                    <div key={i} className="h-8 rounded-lg bg-gray-100 animate-pulse" />
+                  ))}
+                </div>
+              ) : !modelData.length ? (
+                <p className="text-sm text-gray-400 text-center py-16">Sin datos</p>
+              ) : (
+                <div className="space-y-1.5 mt-2 lg:mt-0">
+                  {modelData.map((item) => {
+                    const isActive = activeModel === item.name;
+                    return (
+                      <div
+                        key={item.name}
+                        onClick={() => handleModelClick(item.name)}
+                        className="group py-1.5 px-2 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
+                        style={{ opacity: activeModel && !isActive ? 0.45 : 1 }}
+                      >
+                        <div className="flex items-center justify-between mb-1 gap-2">
+                          <span
+                            className="text-[11px] font-medium truncate"
+                            style={{ color: isActive ? KIA_RED : "#374151" }}
+                          >
+                            #{item.rank} {item.name}
+                          </span>
+                          <span className="text-[11px] text-gray-500 tabular-nums shrink-0">
+                            <span className="font-bold text-gray-800">{item.value}</span>
+                            <span className="text-gray-400 ml-1">({item.sharePct.toFixed(1)}%)</span>
+                          </span>
+                        </div>
+                        <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                          <div
+                            className="h-full rounded-full transition-all"
+                            style={{ width: `${Math.max(item.widthPct, 8)}%`, background: item.fill }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <div className="max-w-3xl">
+              <div className="flex items-center justify-between mb-2 gap-2">
+                <p className="text-[11px] font-semibold text-gray-700">
+                  Factores de desempeño del modelo {focusedModelName || "líder"}
+                </p>
+                <select
+                  value={topModelDriverDimension}
+                  onChange={(e) => setTopModelDriverDimension(e.target.value as TopModelDriverDimension)}
+                  className="text-[11px] bg-white border border-gray-200 text-gray-700 rounded-md px-2 py-1 focus:outline-none"
+                >
+                  <option value="sede">Sede / Región</option>
+                  <option value="estado">Etapa del proceso</option>
+                  <option value="color">Preferencia de color</option>
+                </select>
+              </div>
+
+              {showSkeleton || topModelInsightsLoading ? (
+                <div className="space-y-2">
+                  {[1,2,3,4,5].map((i) => (
+                    <div key={i} className="h-7 rounded-lg bg-gray-100 animate-pulse" />
+                  ))}
+                </div>
+              ) : !topModelDrivers.length ? (
+                <p className="text-sm text-gray-400 text-center py-12">Sin drivers disponibles</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {topModelDrivers.map((item) => {
+                    const max = topModelDrivers[0]?.value || 1;
+                    const pct = Math.round((item.value / max) * 100);
+                    return (
+                      <div key={item.key} className="py-1 px-2 rounded-lg bg-gray-50">
+                        <div className="flex items-center justify-between mb-1 gap-2">
+                          <span className="text-[11px] text-gray-700 truncate">{item.label}</span>
+                          <span className="text-[11px] font-semibold text-gray-800 tabular-nums">{item.value}</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                          <div className="h-full rounded-full" style={{ width: `${Math.max(pct, 8)}%`, background: "#0f172a" }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </BICard>
-
-        {/* Top rankings — 3 stacked in the right column */}
-        <div className="flex flex-col gap-5">
-
-          {/* Por órdenes */}
-          <BICard className="flex-1">
-            <SectionHeader>Top asesores · Órdenes</SectionHeader>
-            {showSkeleton ? (
-              <div className="space-y-2">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-8 rounded-lg bg-gray-100 animate-pulse" />
-                ))}
-              </div>
-            ) : !data?.topAsesores?.ordenesGeneradas?.length ? (
-              <p className="text-xs text-gray-400 text-center py-6">Sin datos</p>
-            ) : (
-              <div className="space-y-2">
-                {data.topAsesores.ordenesGeneradas.slice(0, 5).map((a, i) => (
-                  <div
-                    key={a.uid}
-                    className="flex items-center gap-2.5 py-1.5 px-2 rounded-lg hover:bg-gray-50 transition-colors"
-                  >
-                    <span className="text-base leading-none shrink-0 w-5 text-center">
-                      {MEDAL[i] ?? (
-                        <span className="text-xs font-bold text-gray-400">{i + 1}</span>
-                      )}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-gray-900 truncate">{a.name}</p>
-                      <p className="text-[10px] text-gray-400 truncate">{a.sede}</p>
-                    </div>
-                    <span
-                      className="text-sm font-bold shrink-0 tabular-nums"
-                      style={{ color: KIA_RED }}
-                    >
-                      {a.ordenes}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </BICard>
-
-          {/* Por entregas */}
-          <BICard className="flex-1">
-            <SectionHeader>Top asesores · Entregas</SectionHeader>
-            {showSkeleton ? (
-              <div className="space-y-2">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-8 rounded-lg bg-gray-100 animate-pulse" />
-                ))}
-              </div>
-            ) : !data?.topAsesores?.entregas?.length ? (
-              <p className="text-xs text-gray-400 text-center py-6">Sin datos</p>
-            ) : (
-              <div className="space-y-2">
-                {data.topAsesores.entregas.slice(0, 5).map((a, i) => (
-                  <div
-                    key={a.uid}
-                    className="flex items-center gap-2.5 py-1.5 px-2 rounded-lg hover:bg-gray-50 transition-colors"
-                  >
-                    <span className="text-base leading-none shrink-0 w-5 text-center">
-                      {MEDAL[i] ?? (
-                        <span className="text-xs font-bold text-gray-400">{i + 1}</span>
-                      )}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-gray-900 truncate">{a.name}</p>
-                      <p className="text-[10px] text-gray-400 truncate">{a.sede}</p>
-                    </div>
-                    <span
-                      className="text-sm font-bold shrink-0 tabular-nums"
-                      style={{ color: "#16a34a" }}
-                    >
-                      {a.entregas}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </BICard>
-
-          {/* Top taller · OTs realizadas */}
-          <BICard className="flex-1">
-            <SectionHeader>Top taller · OTs realizadas</SectionHeader>
-            <p className="text-[10px] text-gray-400 -mt-3 mb-3">
-              Órdenes de trabajo asignadas en el período
-            </p>
-            {showSkeleton ? (
-              <div className="space-y-2">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-8 rounded-lg bg-gray-100 animate-pulse" />
-                ))}
-              </div>
-            ) : !data?.topTaller?.length ? (
-              <p className="text-xs text-gray-400 text-center py-6">Sin datos</p>
-            ) : (
-              <div className="space-y-2">
-                {data.topTaller.slice(0, 5).map((t, i) => (
-                  <div
-                    key={t.uid}
-                    className="flex items-center gap-2.5 py-1.5 px-2 rounded-lg hover:bg-gray-50 transition-colors"
-                  >
-                    <span className="text-base leading-none shrink-0 w-5 text-center">
-                      {MEDAL[i] ?? (
-                        <span className="text-xs font-bold text-gray-400">{i + 1}</span>
-                      )}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-gray-900 truncate">{t.name}</p>
-                      <p className="text-[10px] text-gray-400 truncate">{t.sede}</p>
-                    </div>
-                    <span
-                      className="text-sm font-bold shrink-0 tabular-nums"
-                      style={{ color: "#0ea5e9" }}
-                    >
-                      {t.totalOTs}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </BICard>
-
-        </div>
       </div>
-      {/* -- Section 5: Rotation by model + Color distribution */}
-      <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-5">
 
-        {/* Rotation rate by model */}
+      {/* ── Section 4: Accesorios ─────────────────────────── */}
+      <div className="mt-5">
+        <BICard>
+          <SectionHeader>Accesorios documentados</SectionHeader>
+          <p className="text-[10px] text-gray-400 -mt-3 mb-3">
+            Datos filtrados por el rango superior y calculados solo sobre vehículos entregados.
+          </p>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <div className="lg:col-span-4 space-y-2">
+              <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-3">
+                <p className="text-[10px] uppercase tracking-wider text-gray-500">Resumen del período</p>
+                <p className="text-xs text-gray-600 mt-2 flex items-center justify-between">
+                  <span>Vendido</span>
+                  <strong className="text-gray-900">{accessoryOverview.totalVendido.toLocaleString("es-EC")}</strong>
+                </p>
+                <p className="text-xs text-gray-600 mt-1 flex items-center justify-between">
+                  <span>Obsequiado</span>
+                  <strong className="text-gray-900">{accessoryOverview.totalObsequiado.toLocaleString("es-EC")}</strong>
+                </p>
+                {accessoryOverview.totalNoAplica > 0 && (
+                  <p className="text-xs text-gray-600 mt-1 flex items-center justify-between">
+                    <span>No aplica</span>
+                    <strong className="text-gray-900">{accessoryOverview.totalNoAplica.toLocaleString("es-EC")}</strong>
+                  </p>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-gray-200 px-3 py-3">
+                <p className="text-[10px] uppercase tracking-wider text-gray-500">Cobertura del catálogo</p>
+                <p className="text-sm font-semibold text-gray-900 mt-1">
+                  {accessoryOverview.rankedAccessories} de {accessoryOverview.totalAccessories} accesorios
+                </p>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Se muestra la lista completa del catálogo en el período filtrado.
+                </p>
+              </div>
+            </div>
+
+            <div className="lg:col-span-8">
+              <div className="flex items-center gap-4 mb-3">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: KIA_RED }} />
+                  <span className="text-[11px] text-gray-500">Vendido</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: OBSEQUIADO_COLOR }} />
+                  <span className="text-[11px] text-gray-500">Obsequiado</span>
+                </div>
+                {accessoryOverview.totalNoAplica > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-sm shrink-0 bg-gray-400" />
+                    <span className="text-[11px] text-gray-500">No aplica</span>
+                  </div>
+                )}
+                <span className="text-[11px] text-gray-400 ml-auto shrink-0">
+                  Lista completa: {accessoryOverview.rankedAccessories}
+                </span>
+              </div>
+
+              {showSkeleton ? (
+                <div className="space-y-2">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <div key={i} className="h-7 rounded-lg bg-gray-100 animate-pulse" />
+                  ))}
+                </div>
+              ) : !accessoryOverview.list.length ? (
+                <p className="text-sm text-gray-400 text-center py-10">Sin accesorios registrados</p>
+              ) : (
+                <div className="space-y-1">
+                  {accessoryOverview.list.map((item) => {
+                    const total = item.Vendido + item.Obsequiado + item.NoAplica;
+                    const maxTotal =
+                      accessoryOverview.list.reduce(
+                        (max, row) => Math.max(max, row.Vendido + row.Obsequiado + row.NoAplica),
+                        0,
+                      ) || 1;
+                    const pctV = Math.round((item.Vendido / maxTotal) * 100);
+                    const pctO = Math.round((item.Obsequiado / maxTotal) * 100);
+                    const pctN = Math.round((item.NoAplica / maxTotal) * 100);
+
+                    return (
+                      <div key={item.key} className="group py-1.5 px-2 rounded-lg hover:bg-gray-50 transition-colors">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[11px] font-medium text-gray-700 truncate max-w-[60%]">{item.name}</span>
+                          <span className="text-[11px] text-gray-400 tabular-nums shrink-0">
+                            <span className="font-semibold" style={{ color: KIA_RED }}>{item.Vendido}</span>
+                            {item.Obsequiado > 0 && (
+                              <span className="text-gray-400">
+                                {" + "}
+                                <span className="font-semibold" style={{ color: OBSEQUIADO_COLOR }}>{item.Obsequiado}</span>
+                              </span>
+                            )}
+                            {item.NoAplica > 0 && (
+                              <span className="text-gray-400">
+                                {" + "}
+                                <span className="font-semibold text-gray-500">{item.NoAplica}</span>
+                              </span>
+                            )}
+                            {total > 0 && <span className="text-gray-300 ml-1">({total})</span>}
+                          </span>
+                        </div>
+
+                        {total > 0 && (
+                          <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden flex">
+                            <div className="h-full rounded-l-full transition-all" style={{ width: `${pctV}%`, background: KIA_RED }} />
+                            <div className="h-full transition-all" style={{ width: `${pctO}%`, background: OBSEQUIADO_COLOR }} />
+                            {item.NoAplica > 0 && (
+                              <div className="h-full rounded-r-full transition-all bg-gray-400" style={{ width: `${pctN}%` }} />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </BICard>
+      </div>
+      {/* -- Section 5: Rotation by model */}
+      <div className="mt-5">
         <BICard>
           <SectionHeader>Rotación por modelo · días prom. entrega</SectionHeader>
           <p className="text-[10px] text-gray-400 -mt-3 mb-3">
@@ -1060,69 +1386,6 @@ export function DashboardBI() {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          )}
-        </BICard>
-
-        {/* Color distribution */}
-        <BICard>
-          <SectionHeader>Distribución por color</SectionHeader>
-          {showSkeleton ? (
-            <ChartSkeleton h={240} />
-          ) : !colorChartData.length ? (
-            <p className="text-sm text-gray-400 text-center py-16">Sin datos de color</p>
-          ) : (
-            <div className="flex flex-col sm:flex-row items-center gap-4">
-              <div className="shrink-0">
-                <ResponsiveContainer width={160} height={160}>
-                  <PieChart>
-                    <Pie
-                      data={colorChartData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={45}
-                      outerRadius={72}
-                      paddingAngle={2}
-                      dataKey="value"
-                    >
-                      {colorChartData.map((_, i) => (
-                        <Cell key={i} fill={COLOR_PALETTE[i % COLOR_PALETTE.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip content={<ChartTooltip />} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="flex-1 min-w-0 space-y-2 w-full">
-                {colorChartData.map((item, i) => {
-                  const total = colorChartData.reduce((s, x) => s + x.value, 0) || 1;
-                  const pct = Math.round((item.value / total) * 100);
-                  return (
-                    <div key={item.name}>
-                      <div className="flex items-center justify-between mb-0.5">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span
-                            className="w-2 h-2 rounded-full shrink-0"
-                            style={{ background: COLOR_PALETTE[i % COLOR_PALETTE.length] }}
-                          />
-                          <span className="text-xs text-gray-600 truncate max-w-[100px]" title={item.name}>
-                            {item.name}
-                          </span>
-                        </div>
-                        <span className="text-xs font-bold text-gray-900 shrink-0">
-                          {item.value} <span className="font-normal text-gray-400">({pct}%)</span>
-                        </span>
-                      </div>
-                      <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all duration-700"
-                          style={{ width: `${pct}%`, background: COLOR_PALETTE[i % COLOR_PALETTE.length] }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
           )}
         </BICard>
       </div>

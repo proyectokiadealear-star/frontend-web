@@ -22,6 +22,7 @@ import {
   Zap,
   ArrowUpRight,
   Package,
+  Info,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -382,14 +383,32 @@ export default function PotencialVentaPage() {
               </div>
             ) : potential ? (
               <>
+                <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3.5 space-y-2">
+                  <p className="text-xs text-blue-800 leading-relaxed">
+                    La métrica de ponderación se calcula con promedio simple de probabilidades históricas; no es un modelo con pesos avanzados.
+                  </p>
+                  <p className="text-xs font-medium text-amber-700">
+                    Estimación basada en historial, no garantía de venta.
+                  </p>
+                </div>
+
                 {/* Circular gauge + rate cards */}
                 <div className="grid grid-cols-[auto_1fr] gap-5">
                   {/* Circular gauge */}
                   <div className="flex flex-col items-center justify-center">
                     <PotentialGauge value={potential.weightedPotentialRate} />
-                    <p className="text-[10px] text-gray-400 mt-1.5 text-center font-medium uppercase tracking-wide">
-                      Potencial ponderado
+                    <p
+                      title="Promedio de probabilidades de accesorios no adquiridos, calculado con historial de casos similares."
+                      className="text-[10px] text-gray-400 mt-1.5 text-center font-medium uppercase tracking-wide inline-flex items-center gap-1"
+                    >
+                      Índice de potencial (histórico)
+                      <Info size={11} />
                     </p>
+                    {potential.weightedPotentialRate <= 0 &&
+                    potential.potentialSaleRate <= 0 &&
+                    potential.highPotentialItems.length === 0 ? (
+                      <p className="text-[10px] text-gray-500 mt-1">Sin datos comparables</p>
+                    ) : null}
                   </div>
                   {/* Rate cards */}
                   <div className="grid grid-rows-3 gap-2.5">
@@ -400,16 +419,23 @@ export default function PotencialVentaPage() {
                       color="blue"
                     />
                     <RateCard
-                      label="Potencial bruto"
+                      label="Potencial base de venta"
                       value={potential.potentialSaleRate}
                       sub={`${potential.notApplicable} accesorios sin asignar`}
                       color="amber"
                     />
                     <RateCard
-                      label="Potencial ponderado"
+                      label="Índice de potencial (histórico)"
                       value={potential.weightedPotentialRate}
-                      sub="Basado en patrones históricos"
-                      color="green"
+                      sub={
+                        potential.weightedPotentialRate <= 0 &&
+                        potential.potentialSaleRate <= 0 &&
+                        potential.highPotentialItems.length === 0
+                          ? "Sin datos comparables"
+                          : "Basado en patrones históricos"
+                      }
+                      color="weighted"
+                      tooltip="Promedio de probabilidades de accesorios no adquiridos, calculado con historial de casos similares."
                     />
                   </div>
                 </div>
@@ -458,9 +484,13 @@ export default function PotencialVentaPage() {
                 {/* High potential items */}
                 {potential.highPotentialItems.length > 0 ? (
                   <div className="bg-white border border-gray-200 rounded-xl p-5">
-                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4 flex items-center gap-1.5">
+                    <h4
+                      title="Incluye accesorios con probabilidad estimada >= 40%."
+                      className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-4 flex items-center gap-1.5"
+                    >
                       <Sparkles size={14} className="text-amber-500" />
-                      Oportunidades detectadas
+                      Accesorios recomendados (alta probabilidad)
+                      <Info size={12} className="text-gray-400" />
                       <span className="ml-auto text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full text-[10px] font-bold normal-case">
                         {potential.highPotentialItems.length} accesorio{potential.highPotentialItems.length > 1 ? "s" : ""}
                       </span>
@@ -606,7 +636,9 @@ function PotentialGauge({ value }: { value: number }) {
   const circumference = 2 * Math.PI * r;
   const offset = circumference - (pct / 100) * circumference;
   const color =
-    pct >= 50 ? "stroke-green-500" : pct >= 25 ? "stroke-amber-400" : "stroke-red-400";
+    pct >= 70 ? "stroke-green-500" : pct >= 40 ? "stroke-amber-400" : "stroke-gray-400";
+  const levelLabel = pct >= 70 ? "Alto" : pct >= 40 ? "Medio" : "Bajo";
+  const levelColor = pct >= 70 ? "text-green-700" : pct >= 40 ? "text-amber-700" : "text-gray-600";
 
   return (
     <div className="relative w-28 h-28">
@@ -634,6 +666,7 @@ function PotentialGauge({ value }: { value: number }) {
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-xl font-bold text-gray-900">{pct}%</span>
+        <span className={`text-[10px] font-semibold uppercase tracking-wide ${levelColor}`}>{levelLabel}</span>
       </div>
     </div>
   );
@@ -644,22 +677,36 @@ function RateCard({
   value,
   sub,
   color,
+  tooltip,
 }: {
   label: string;
   value: number;
   sub: string;
-  color: "blue" | "amber" | "green";
+  color: "blue" | "amber" | "green" | "weighted";
+  tooltip?: string;
 }) {
+  const rounded = Math.round(value);
+  const weightedStyles =
+    rounded >= 70
+      ? "border-green-100 bg-green-50/50 text-green-700"
+      : rounded >= 40
+      ? "border-amber-100 bg-amber-50/50 text-amber-700"
+      : "border-gray-200 bg-gray-50 text-gray-700";
+
   const styles = {
     blue: "border-blue-100 bg-blue-50/50 text-blue-700",
     amber: "border-amber-100 bg-amber-50/50 text-amber-700",
     green: "border-green-100 bg-green-50/50 text-green-700",
+    weighted: weightedStyles,
   }[color];
 
   return (
     <div className={`rounded-lg border ${styles} px-4 py-2.5 flex items-center justify-between`}>
       <div>
-        <p className="text-xs font-medium opacity-80">{label}</p>
+        <p title={tooltip} className="text-xs font-medium opacity-80 inline-flex items-center gap-1">
+          {label}
+          {tooltip ? <Info size={11} /> : null}
+        </p>
         <p className="text-[10px] opacity-60 mt-0.5">{sub}</p>
       </div>
       <p className="text-lg font-bold ml-3">{value.toFixed(1)}%</p>

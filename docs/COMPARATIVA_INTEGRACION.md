@@ -380,3 +380,17 @@ Los siguientes endpoints necesitan validación/curl antes de integrar (por tener
 | `app/dashboard/transfers/page.tsx` | 🔴 Sin revisar |
 
 > **Próximo paso:** Pasame los curls de los endpoints de Prioridad ALTA para comenzar la integración desde `lib/api.ts`.
+
+---
+
+## 🧩 Actualización BI JEFE — Contrato general KPIs
+
+- El dashboard BI de JEFE (`app/dashboard/DashboardBI.tsx`) ya consume `GET /reports/analytics` con contrato tipado desde `lib/api.ts`.
+- Mapeo vigente de filtros frontend → API para BI:
+  - `dateFrom` y `dateTo` obligatorios (formato `DD/MM/YYYY`).
+  - `sede` y `model` opcionales (se omiten cuando están vacíos).
+- Semántica aplicada en UI BI:
+  - `total` + `byStatus` se muestran como inventario activo.
+  - `vehiclesDelivered` y `vehiclesCreatedInPeriod` se muestran como métricas del período.
+  - Tasa de entrega = `vehiclesDelivered / vehiclesCreatedInPeriod`.
+- La pantalla BI se endureció para payloads parciales: claves opcionales ausentes (`byColor`, `byModelRotation`, etc.) no deben romper render.

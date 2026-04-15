@@ -19,6 +19,8 @@ import {
   Lightbulb,
   Phone,
   CheckCircle2,
+  RefreshCw,
+  CalendarDays,
 } from "lucide-react";
 import { getVehiclesCallCenter, getSalePotential } from "@/lib/api";
 import { AccessoryKey, VehicleStatusLabel, VehicleStatusColor } from "@/lib/constants";
@@ -32,6 +34,27 @@ const TELEMETRIA_KEY = AccessoryKey.TELEMETRIA;
 const PAGE_SIZE = 8;
 
 const PRIORITY_ORDER: Record<Prioridad, number> = { ALTA: 0, MEDIA: 1, BAJA: 2 };
+
+function todayISO(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
+
+function startOfCurrentMonthISO(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}-01`;
+}
+
+function isoToDisplay(iso: string): string {
+  const d = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("es-EC", { day: "2-digit", month: "short", year: "numeric" });
+}
 
 // ─── Classification logic ─────────────────────────────────────
 function clasificarVehiculo(raw: CallCenterVehicle): ClassifiedVehicle {
@@ -147,6 +170,8 @@ export function DashboardCallCenter() {
   const [filterSede, setFilterSede] = useState("");
   const [filterModelo, setFilterModelo] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
+  const [periodFrom, setPeriodFrom] = useState(startOfCurrentMonthISO);
+  const [periodTo, setPeriodTo] = useState(todayISO);
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [predictions, setPredictions] = useState<Record<string, SalePotential>>({});
@@ -161,43 +186,91 @@ export function DashboardCallCenter() {
 
   const [page, setPage] = useState(1);
 
-  // ── Data fetch (all pages accumulated) ─────────────────────
-  useEffect(() => {
-    let cancelled = false;
+  const fetchCallCenter = useCallback(async () => {
+    if (periodFrom > periodTo) {
+      setError('Rango de fechas inválido.');
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
-    (async () => {
-      try {
-        const first = await getVehiclesCallCenter(1, 100);
-        const { data: firstData, totalPages } = first.data;
-        let allVehicles = [...firstData];
+    try {
+      const first = await getVehiclesCallCenter(1, 100, {
+        sede: filterSede || undefined,
+        model: filterModelo || undefined,
+        status: filterStatus || undefined,
+        dateFrom: periodFrom || undefined,
+        dateTo: periodTo || undefined,
+      });
+      const { data: firstData, totalPages } = first.data;
+      let allVehicles = [...firstData];
 
-        if (totalPages > 1) {
-          const rest = await Promise.all(
-            Array.from({ length: totalPages - 1 }, (_, i) =>
-              getVehiclesCallCenter(i + 2, 100).then((r) => r.data.data)
-            )
-          );
-          allVehicles = allVehicles.concat(rest.flat());
-        }
-
-        if (!cancelled) setRawVehicles(allVehicles);
-      } catch {
-        if (!cancelled) setError("No se pudo cargar la lista de vehículos.");
-      } finally {
-        if (!cancelled) setLoading(false);
+      if (totalPages > 1) {
+        const rest = await Promise.all(
+          Array.from({ length: totalPages - 1 }, (_, i) =>
+            getVehiclesCallCenter(i + 2, 100, {
+              sede: filterSede || undefined,
+              model: filterModelo || undefined,
+              status: filterStatus || undefined,
+              dateFrom: periodFrom || undefined,
+              dateTo: periodTo || undefined,
+            }).then((r) => r.data.data)
+          )
+        );
+        allVehicles = allVehicles.concat(rest.flat());
       }
-    })();
 
-    return () => { cancelled = true; };
+      setRawVehicles(allVehicles);
+    } catch {
+      setError("No se pudo cargar la lista de vehículos.");
+    } finally {
+      setLoading(false);
+    }
+  }, [filterSede, filterModelo, filterStatus, periodFrom, periodTo]);
+
+  // ── Data fetch (all pages accumulated) ─────────────────────
+  useEffect(() => {
+    fetchCallCenter();
+  }, [fetchCallCenter]);
+
+  const hasPeriodError = useMemo(() => periodFrom > periodTo, [periodFrom, periodTo]);
+
+  const resetServerFilters = useCallback(() => {
+    setFilterSede("");
+    setFilterModelo("");
+    setFilterStatus("");
+    setPeriodFrom(startOfCurrentMonthISO());
+    setPeriodTo(todayISO());
   }, []);
+
+  const periodLabel = useMemo(
+    () => `${isoToDisplay(periodFrom)} - ${isoToDisplay(periodTo)}`,
+    [periodFrom, periodTo]
+  );
+
+  const serverFiltersLabel = useMemo(() => {
+    const bits: string[] = [];
+    bits.push(filterSede ? `Sede: ${filterSede}` : "Todas las sedes");
+    bits.push(filterModelo ? `Modelo: ${filterModelo}` : "Todos los modelos");
+    bits.push(filterStatus ? `Estado: ${VehicleStatusLabel[filterStatus as VehicleStatusType] ?? filterStatus}` : "Todos los estados");
+    return bits.join(" · ");
+  }, [filterSede, filterModelo, filterStatus]);
 
   // ── Classification ─────────────────────────────────────────
   const clasificados = useMemo(
     () => rawVehicles.map(clasificarVehiculo),
     [rawVehicles]
   );
+
+  const documentationCoverage = useMemo(() => {
+    if (!clasificados.length) return { found: 0, missing: 0, pct: 0 };
+    const found = clasificados.filter((v) => v.documentationFound !== false).length;
+    const missing = clasificados.length - found;
+    const pct = Math.round((found / clasificados.length) * 100);
+    return { found, missing, pct };
+  }, [clasificados]);
 
   // ── Filtered list ──────────────────────────────────────────
   const filteredList = useMemo(() => {
@@ -212,9 +285,6 @@ export function DashboardCallCenter() {
         if (!match) return false;
       }
       if (filterPrioridad && v.prioridad !== filterPrioridad) return false;
-      if (filterSede && v.sede !== filterSede) return false;
-      if (filterModelo && v.modelo !== filterModelo) return false;
-      if (filterStatus && v.status !== filterStatus) return false;
       if (filterOportunidad) {
         if (filterOportunidad === "sinAmbos" && v.oportunidad !== "AMBOS") return false;
         if (filterOportunidad === "sinSeguro" && v.oportunidad !== "SOLO_SEGURO" && v.oportunidad !== "AMBOS") return false;
@@ -228,24 +298,47 @@ export function DashboardCallCenter() {
       (a, b) => PRIORITY_ORDER[a.prioridad] - PRIORITY_ORDER[b.prioridad]
     );
     return list;
-  }, [clasificados, search, filterPrioridad, filterOportunidad, filterSede, filterModelo]);
+  }, [clasificados, search, filterPrioridad, filterOportunidad]);
 
   // Reset page on filter change
   useEffect(() => {
     setPage(1);
-  }, [search, filterPrioridad, filterOportunidad, filterSede, filterModelo, filterStatus]);
+  }, [search, filterPrioridad, filterOportunidad, filterSede, filterModelo, filterStatus, periodFrom, periodTo]);
 
   // ── KPIs ───────────────────────────────────────────────────
   const kpis = useMemo(() => {
     const total = clasificados.length;
     const sinSeguro = clasificados.filter((v) => !v.tieneSeguro).length;
     const sinTelemetria = clasificados.filter((v) => !v.tieneTelemetria).length;
+    const conSeguro = total - sinSeguro;
+    const conTelemetria = total - sinTelemetria;
     const prioridadAlta = clasificados.filter((v) => v.prioridad === "ALTA").length;
     const conAmbos = clasificados.filter((v) => v.oportunidad === "NINGUNA").length;
+    const pendientesActivacion = clasificados.filter((v) => v.oportunidad === "SOLO_SEGURO" || v.oportunidad === "SOLO_TELEMETRIA").length;
+    const sinCoberturaPostventa = clasificados.filter((v) => v.oportunidad === "AMBOS").length;
     const contactados = contacted.size;
     const pctSinSeguro = total > 0 ? Math.round((sinSeguro / total) * 100) : 0;
     const pctSinTelemetria = total > 0 ? Math.round((sinTelemetria / total) * 100) : 0;
-    return { total, sinSeguro, pctSinSeguro, sinTelemetria, pctSinTelemetria, prioridadAlta, conAmbos, contactados };
+    const tasaSeguro = total > 0 ? Math.round((conSeguro / total) * 100) : 0;
+    const tasaTelemetria = total > 0 ? Math.round((conTelemetria / total) * 100) : 0;
+    const tasaCoberturaPostventa = total > 0 ? Math.round((conAmbos / total) * 100) : 0;
+    return {
+      total,
+      sinSeguro,
+      pctSinSeguro,
+      sinTelemetria,
+      pctSinTelemetria,
+      conSeguro,
+      conTelemetria,
+      tasaSeguro,
+      tasaTelemetria,
+      prioridadAlta,
+      conAmbos,
+      pendientesActivacion,
+      sinCoberturaPostventa,
+      tasaCoberturaPostventa,
+      contactados,
+    };
   }, [clasificados, contacted]);
 
   // ── Chart data ─────────────────────────────────────────────
@@ -370,42 +463,68 @@ export function DashboardCallCenter() {
   return (
     <div className="space-y-6">
       {/* ── KPI Banner ─────────────────────────────────────── */}
-      <div className="rounded-2xl bg-[#0f172a] px-6 py-5 flex flex-wrap gap-8 items-center">
-        <div className="flex-1 min-w-0">
+      <div className="rounded-2xl bg-[#0f172a] px-6 py-5 flex flex-col gap-4">
+        <div className="flex flex-wrap gap-4 items-start justify-between">
+          <div className="flex-1 min-w-0">
           <h2 className="font-bebas text-2xl text-white tracking-wide">
-            Call Center · Oportunidades
+            Call Center · Cobertura Postventa
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Vehículos desde Documentado hasta Entregado — sin Seguro o Telemetría
+            Pipeline documentado a entregado con foco en Seguro y Telemetría
           </p>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-slate-300 bg-white/10 border border-white/15 rounded-lg px-3 py-2">
+            <CalendarDays className="w-3.5 h-3.5" />
+            <span>{periodLabel}</span>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-8">
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-5">
           <KpiBlock
-            label="Total entregados"
+            label="Vehículos en gestión"
             value={loading ? "—" : kpis.total}
           />
           <KpiBlock
-            label="Sin seguro"
-            value={loading ? "—" : kpis.sinSeguro}
-            sub={loading ? "" : `(${kpis.pctSinSeguro}%)`}
-            color="text-red-400"
+            label="Cobertura seguro"
+            value={loading ? "—" : `${kpis.tasaSeguro}%`}
+            sub={loading ? "" : `${kpis.conSeguro} con seguro`}
+            color="text-emerald-400"
           />
           <KpiBlock
-            label="Sin telemetría"
-            value={loading ? "—" : kpis.sinTelemetria}
-            sub={loading ? "" : `(${kpis.pctSinTelemetria}%)`}
+            label="Cobertura telemetría"
+            value={loading ? "—" : `${kpis.tasaTelemetria}%`}
+            sub={loading ? "" : `${kpis.conTelemetria} con telemetría`}
+            color="text-cyan-400"
+          />
+          <KpiBlock
+            label="Cobertura postventa"
+            value={loading ? "—" : `${kpis.tasaCoberturaPostventa}%`}
+            sub={loading ? "" : `${kpis.conAmbos} con ambos`}
+            color="text-green-400"
+          />
+          <KpiBlock
+            label="Pendientes activación"
+            value={loading ? "—" : kpis.pendientesActivacion}
+            sub={loading ? "" : "solo uno activo"}
             color="text-amber-400"
           />
           <KpiBlock
-            label="Prioridad ALTA"
-            value={loading ? "—" : kpis.prioridadAlta}
+            label="Brecha sin cobertura"
+            value={loading ? "—" : kpis.sinCoberturaPostventa}
+            sub={loading ? "" : "sin seguro ni telemetría"}
             color="text-red-400"
           />
-          <KpiBlock
-            label="Con ambos"
-            value={loading ? "—" : kpis.conAmbos}
-            color="text-green-400"
-          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-300">
+          <span>{serverFiltersLabel}</span>
+          <span className="text-slate-500">|</span>
+          <span>
+            Cobertura documental: {documentationCoverage.pct}% ({documentationCoverage.found}/{kpis.total || 0})
+          </span>
+          {documentationCoverage.missing > 0 && (
+            <span className="text-amber-300">{documentationCoverage.missing} sin documentación enlazada</span>
+          )}
         </div>
       </div>
 
@@ -525,6 +644,47 @@ export function DashboardCallCenter() {
 
       {/* ── Filters ────────────────────────────────────────── */}
       <div className="rounded-2xl bg-white border border-slate-100 shadow-sm p-4 space-y-3">
+        <div className="flex flex-wrap gap-2 items-end">
+          <label className="text-xs text-slate-500">
+            Desde
+            <input
+              type="date"
+              value={periodFrom}
+              max={periodTo}
+              onChange={(e) => setPeriodFrom(e.target.value)}
+              className="mt-1 block rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none"
+            />
+          </label>
+          <label className="text-xs text-slate-500">
+            Hasta
+            <input
+              type="date"
+              value={periodTo}
+              min={periodFrom}
+              max={todayISO()}
+              onChange={(e) => setPeriodTo(e.target.value)}
+              className="mt-1 block rounded-lg border border-slate-200 px-2 py-1.5 text-xs outline-none"
+            />
+          </label>
+          <button
+            onClick={() => fetchCallCenter()}
+            disabled={loading || hasPeriodError}
+            className="h-[33px] px-3 rounded-lg text-xs font-medium bg-slate-700 text-white hover:bg-slate-800 disabled:opacity-50 inline-flex items-center gap-1.5"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            Actualizar
+          </button>
+          <button
+            onClick={resetServerFilters}
+            className="h-[33px] px-3 rounded-lg text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200"
+          >
+            Restablecer filtros superiores
+          </button>
+          {hasPeriodError && (
+            <span className="text-xs text-red-600">Rango inválido: "Desde" debe ser menor o igual a "Hasta".</span>
+          )}
+        </div>
+
         {/* Search */}
         <input
           type="text"
@@ -581,7 +741,7 @@ export function DashboardCallCenter() {
             ))}
           </div>
 
-          {/* Sede & Modelo selects */}
+          {/* Filtros superiores (servidor) */}
           <select
             value={filterSede}
             onChange={(e) => setFilterSede(e.target.value)}

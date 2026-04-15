@@ -15,6 +15,15 @@ import type {
   Notification,
   SalePotential,
 } from "@/types";
+import type {
+  BIAnalyticsResponse,
+  BIDashboardGeneralQuery,
+  BIDashboardGeneralResponse,
+} from "@/lib/biDashboardGeneral";
+import {
+  buildBIDashboardGeneralParams,
+  mapBIAnalyticsToBIDashboardGeneralResponse,
+} from "@/lib/biDashboardGeneral";
 
 // ============================================================
 // Storage keys — single source of truth used by AuthContext too
@@ -367,16 +376,31 @@ export const getAnalytics = (params?: {
   to?: string;
 }) => api.get("/reports/analytics", { params });
 
-export const getBIAnalytics = (params: {
+export const getBIDashboardGeneral = async (
+  query: BIDashboardGeneralQuery,
+) => {
+  const response = await api.get<BIAnalyticsResponse>("/reports/analytics", {
+    params: buildBIDashboardGeneralParams(query),
+  });
+
+  return {
+    ...response,
+    data: mapBIAnalyticsToBIDashboardGeneralResponse(response.data, query),
+  } as typeof response & { data: BIDashboardGeneralResponse };
+};
+
+export type BIAnalyticsQuery = {
   sede?: string;
   model?: string;
   dateFrom: string;
   dateTo: string;
-}) =>
+};
+
+export const getBIAnalytics = (params: BIAnalyticsQuery) =>
   api.get<BIAnalyticsData>("/reports/analytics", {
     params: {
-      ...(params.sede ? { sede: params.sede } : {}),
-      ...(params.model ? { model: params.model } : {}),
+      ...(params.sede?.trim() ? { sede: params.sede } : {}),
+      ...(params.model?.trim() ? { model: params.model } : {}),
       dateFrom: params.dateFrom,
       dateTo: params.dateTo,
     },
@@ -385,23 +409,27 @@ export const getBIAnalytics = (params: {
 export type BIAnalyticsData = {
   total: number;
   vehiclesDelivered: number;
+  // Period-bound denominator for delivery rate (entregados / ingresos del período)
   vehiclesCreatedInPeriod?: number;
   byStatus: Record<string, number>;
   bySede: Record<string, number>;
   byModel: Record<string, number>;
-  byColor: Record<string, number>;
+  // Optional depending on backend aggregation availability / data volume
+  byColor?: Record<string, number>;
   avgDaysToDelivery: number | null;
   medianDaysToDelivery: number | null;
-  byModelRotation: Record<string, { avgDays: number; count: number }>;
+  // Optional depending on backend aggregation availability / data volume
+  byModelRotation?: Record<string, { avgDays: number; count: number }>;
   byMonthlyDeliveries: { month: string; count: number }[];
   accessories: {
     byKey: Record<
       string,
-      { VENDIDO: number; OBSEQUIADO: number; NO_APLICA: number }
+      { VENDIDO?: number; OBSEQUIADO?: number; NO_APLICA?: number }
     >;
     topSold: { key: string; vendido: number }[];
     totalVendido: number;
     totalObsequiado: number;
+    totalNoAplica?: number;
   };
   topAsesores: {
     ordenesGeneradas: {
@@ -445,6 +473,8 @@ export interface CallCenterVehicleRaw {
   año: number;
   sede: string;
   status: string;
+  referenceDate?: string | null;
+  documentationFound?: boolean;
   propietario: {
     nombre: string;
     cedula: string;
@@ -454,9 +484,19 @@ export interface CallCenterVehicleRaw {
   accessories: Array<{ key: string; classification: string | null }>;
 }
 
-export const getVehiclesCallCenter = (page = 1, limit = 100) =>
+export const getVehiclesCallCenter = (
+  page = 1,
+  limit = 100,
+  filters?: {
+    sede?: string;
+    model?: string;
+    status?: string;
+    dateFrom?: string;
+    dateTo?: string;
+  }
+) =>
   api.get<PaginatedResponse<CallCenterVehicleRaw>>("/vehicles/call-center", {
-    params: { page, limit },
+    params: { page, limit, ...filters },
   });
 
 // ============================================================

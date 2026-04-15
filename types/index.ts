@@ -265,6 +265,8 @@ export interface CallCenterVehicle {
   año: number;
   sede: string;
   status: string;
+  referenceDate?: string | null;
+  documentationFound?: boolean;
   propietario: {
     nombre: string;
     cedula: string;

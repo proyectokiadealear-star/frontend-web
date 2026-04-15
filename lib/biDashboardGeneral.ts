@@ -39,6 +39,11 @@ export interface BIDashboardGeneralResponse {
   alerts?: unknown;
   otif_breakdown?: unknown;
   accessories?: BIAccessoriesResponse;
+  registration_backlog?: {
+    pendingReception?: number;
+    porArribar?: number;
+    pendingToRegister?: number;
+  };
 }
 
 export interface BIAccessoryByKeyCounters {
@@ -59,6 +64,11 @@ export interface BIAnalyticsResponse {
   total: number;
   vehiclesDelivered: number;
   vehiclesCreatedInPeriod?: number;
+  registrationBacklog?: {
+    pendingReception: number;
+    porArribar: number;
+    pendingToRegister: number;
+  };
   byStatus: Record<string, number>;
   bySede: Record<string, number>;
   byModel: Record<string, number>;
@@ -175,6 +185,11 @@ export interface BIDashboardGeneralVM {
   alerts: BIDashboardGeneralAlert[];
   otifBreakdown?: BIOtifBreakdown;
   accessories: BIAccessoriesResponse;
+  registrationBacklog?: {
+    pendingReception: number;
+    porArribar: number;
+    pendingToRegister: number;
+  };
 }
 
 function safeString(input: unknown): string {
@@ -271,6 +286,18 @@ function createAnalyticsAlerts(data: BIAnalyticsResponse): BIDashboardGeneralAle
       severity: "warning",
       title: "Rotacion promedio alta",
       message: `El tiempo promedio de entrega es ${data.avgDaysToDelivery.toFixed(1)} dias.`,
+    });
+  }
+
+  const pendingToRegister = data.registrationBacklog?.pendingToRegister ?? 0;
+  const pendingReception = data.registrationBacklog?.pendingReception ?? 0;
+  const porArribar = data.registrationBacklog?.porArribar ?? 0;
+  if (pendingToRegister > 0) {
+    alerts.push({
+      id: "pendientes_matriculacion",
+      severity: "info",
+      title: "Pendientes de matricular en seguimiento",
+      message: `${pendingToRegister} unidades pendientes (${pendingReception} por recepción de matrícula, ${porArribar} en estado POR_ARRIBAR).`,
     });
   }
 
@@ -421,6 +448,9 @@ function buildExecutiveKpis(
 ): BIDashboardGeneralKpi[] {
   const otifValue = data.otif?.valuePct ?? null;
   const labelSuffix = formatGranularityLabel(granularity);
+  const pendingReception = data.registrationBacklog?.pendingReception ?? 0;
+  const porArribar = data.registrationBacklog?.porArribar ?? 0;
+  const pendingToRegister = data.registrationBacklog?.pendingToRegister ?? (pendingReception + porArribar);
 
   return [
     {
@@ -438,11 +468,11 @@ function buildExecutiveKpis(
       subtitle: `Corte ${labelSuffix}`,
     },
     {
-      id: "ingresos_periodo",
-      label: "Ingresos periodo",
-      value: data.vehiclesCreatedInPeriod ?? 0,
-      formatted_value: formatMetricValue(data.vehiclesCreatedInPeriod ?? 0),
-      subtitle: `Base ${labelSuffix}`,
+      id: "pendientes_matricular",
+      label: "Pendientes de matricular",
+      value: pendingToRegister,
+      formatted_value: formatMetricValue(pendingToRegister),
+      subtitle: `Recepción pendiente ${pendingReception} · POR_ARRIBAR ${porArribar}`,
     },
     {
       id: "otif_v1",
@@ -663,6 +693,14 @@ export function mapBIAnalyticsToBIDashboardGeneralResponse(
     alerts: createAnalyticsAlerts(data),
     otif_breakdown: buildOtifBreakdown(data),
     accessories: buildAccessories(data),
+    registration_backlog: data.registrationBacklog
+      ? {
+          pendingReception: data.registrationBacklog.pendingReception ?? 0,
+          porArribar: data.registrationBacklog.porArribar ?? 0,
+          pendingToRegister: data.registrationBacklog.pendingToRegister
+            ?? ((data.registrationBacklog.pendingReception ?? 0) + (data.registrationBacklog.porArribar ?? 0)),
+        }
+      : undefined,
   };
 }
 
@@ -944,6 +982,21 @@ function parseAccessories(input: unknown): BIAccessoriesResponse {
   };
 }
 
+function parseRegistrationBacklog(input: unknown): BIDashboardGeneralVM["registrationBacklog"] {
+  if (!input || typeof input !== "object") return undefined;
+  const raw = input as Record<string, unknown>;
+  const pendingReception = safeNumber(raw.pendingReception) ?? 0;
+  const porArribar = safeNumber(raw.porArribar) ?? 0;
+  const pendingToRegister =
+    safeNumber(raw.pendingToRegister) ?? (pendingReception + porArribar);
+
+  return {
+    pendingReception,
+    porArribar,
+    pendingToRegister,
+  };
+}
+
 export function mapBIDashboardGeneralResponse(
   response: BIDashboardGeneralResponse,
 ): BIDashboardGeneralVM {
@@ -973,6 +1026,7 @@ export function mapBIDashboardGeneralResponse(
     alerts: parseAlerts(response.alerts),
     otifBreakdown: parseOtifBreakdown(response.otif_breakdown),
     accessories: parseAccessories(response.accessories),
+    registrationBacklog: parseRegistrationBacklog(response.registration_backlog),
   };
 }
 

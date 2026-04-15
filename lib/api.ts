@@ -411,6 +411,11 @@ export type BIAnalyticsData = {
   vehiclesDelivered: number;
   // Period-bound denominator for delivery rate (entregados / ingresos del período)
   vehiclesCreatedInPeriod?: number;
+  registrationBacklog?: {
+    pendingReception: number;
+    porArribar: number;
+    pendingToRegister: number;
+  };
   byStatus: Record<string, number>;
   bySede: Record<string, number>;
   byModel: Record<string, number>;

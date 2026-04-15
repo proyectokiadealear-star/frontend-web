@@ -708,6 +708,19 @@ export function DashboardBI() {
 
   const otifBreakdown = normalizedData?.otifBreakdown;
 
+  const registrationBacklog = useMemo(() => {
+    const pendingReception = normalizedData?.registrationBacklog?.pendingReception ?? 0;
+    const porArribar = normalizedData?.registrationBacklog?.porArribar ?? 0;
+    const pendingToRegister = normalizedData?.registrationBacklog?.pendingToRegister
+      ?? (pendingReception + porArribar);
+
+    return {
+      pendingToRegister,
+      porArribar,
+      pendingReception,
+    };
+  }, [normalizedData]);
+
   const trendChartData = useMemo(() => {
     if (!trendSeries?.points?.length) return [];
     return trendSeries.points.map((point) => ({
@@ -904,36 +917,30 @@ export function DashboardBI() {
           ) : null}
       </div>
 
-      {/* Alerts section from backend contract */}
-      {!showSkeleton && !!normalizedData?.alerts?.length && (
+      {/* Matriculacion */}
+      {!showSkeleton && (
         <div className="mt-5">
           <BICard>
-            <SectionHeader>Alertas</SectionHeader>
-            <div className="space-y-2">
-              {normalizedData.alerts.map((alert) => {
-                const alertColor =
-                  alert.severity === "critical"
-                    ? "#dc2626"
-                    : alert.severity === "warning"
-                      ? "#d97706"
-                      : alert.severity === "success"
-                        ? "#16a34a"
-                        : "#2563eb";
-                return (
-                  <div
-                    key={alert.id}
-                    className="rounded-lg border px-3 py-2"
-                    style={{ borderColor: `${alertColor}66`, background: `${alertColor}10` }}
-                  >
-                    <p className="text-xs font-semibold" style={{ color: alertColor }}>
-                      {alert.title}
-                    </p>
-                    {alert.message && (
-                      <p className="text-xs text-gray-600 mt-0.5">{alert.message}</p>
-                    )}
-                  </div>
-                );
-              })}
+            <SectionHeader>Matriculacion</SectionHeader>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700">Pendientes</p>
+                <p className="text-3xl leading-none font-semibold text-amber-900 mt-1 tabular-nums">
+                  {registrationBacklog.pendingToRegister.toLocaleString("es-EC")}
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-600">Por matricular</p>
+                <p className="text-3xl leading-none font-semibold text-slate-900 mt-1 tabular-nums">
+                  {registrationBacklog.porArribar.toLocaleString("es-EC")}
+                </p>
+              </div>
+              <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-sky-700">Recepcion matr.</p>
+                <p className="text-3xl leading-none font-semibold text-sky-900 mt-1 tabular-nums">
+                  {registrationBacklog.pendingReception.toLocaleString("es-EC")}
+                </p>
+              </div>
             </div>
           </BICard>
         </div>

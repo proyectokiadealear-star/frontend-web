@@ -25,6 +25,200 @@ import {
   mapBIAnalyticsToBIDashboardGeneralResponse,
 } from "@/lib/biDashboardGeneral";
 
+type ApiResult<T> = { data: T };
+
+type QueryValue = string | number | boolean | null | undefined;
+type QueryParams = Record<string, QueryValue>;
+
+type CursorPageOptions = {
+  params?: QueryParams;
+  limit?: number;
+  legacyArrayFallback?: boolean;
+  signal?: AbortSignal;
+};
+
+type FetchAllPagesCursorOptions = CursorPageOptions & {
+  maxPages?: number;
+};
+
+type FetchAllPagesCursorMeta = {
+  pageNumber: number;
+  accumulated: number;
+};
+
+type FetchAllPagesCursorOptionsWithCallback<T> = FetchAllPagesCursorOptions & {
+  onPage?: (
+    page: PaginatedResponse<T>,
+    meta: FetchAllPagesCursorMeta,
+  ) => void | Promise<void>;
+};
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const toPositiveNumberOr = (value: unknown, fallback: number) =>
+  typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : fallback;
+
+const cleanParams = (params?: QueryParams): QueryParams => {
+  if (!params) return {};
+  const cleaned: QueryParams = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null) continue;
+    cleaned[key] = value;
+  }
+  return cleaned;
+};
+
+const normalizePaginatedResponse = <T>(
+  payload: unknown,
+  options?: CursorPageOptions,
+): PaginatedResponse<T> => {
+  if (Array.isArray(payload) && options?.legacyArrayFallback) {
+    const limit = options.limit ?? payload.length;
+    return {
+      data: payload as T[],
+      total: payload.length,
+      page: 1,
+      limit,
+      totalPages: limit > 0 ? Math.max(1, Math.ceil(payload.length / limit)) : 1,
+      nextCursor: null,
+    };
+  }
+
+  if (!isPlainObject(payload)) {
+    const fallbackLimit = options?.limit ?? 0;
+    return {
+      data: [],
+      total: 0,
+      page: 1,
+      limit: fallbackLimit,
+      totalPages: 1,
+      nextCursor: null,
+    };
+  }
+
+  const rows = Array.isArray(payload.data) ? (payload.data as T[]) : [];
+  const limit = toPositiveNumberOr(payload.limit, options?.limit ?? (rows.length || 1));
+  const total = toPositiveNumberOr(payload.total, rows.length);
+  const page = toPositiveNumberOr(payload.page, 1);
+  const totalPages = toPositiveNumberOr(
+    payload.totalPages,
+    limit > 0 ? Math.max(1, Math.ceil(total / limit)) : 1,
+  );
+  const nextCursor =
+    typeof payload.nextCursor === "string"
+      ? payload.nextCursor
+      : payload.nextCursor === null
+        ? null
+        : null;
+
+  return {
+    data: rows,
+    total,
+    page,
+    limit,
+    totalPages,
+    nextCursor,
+  };
+};
+
+export const getFirstPage = async <T>(
+  endpoint: string,
+  options?: CursorPageOptions,
+): Promise<PaginatedResponse<T>> => {
+  const params: QueryParams = {
+    ...cleanParams(options?.params),
+    ...(options?.limit ? { limit: options.limit } : {}),
+  };
+  const response = await api.get(endpoint, { params, signal: options?.signal });
+  return normalizePaginatedResponse<T>(response.data, options);
+};
+
+export const getNextPage = async <T>(
+  endpoint: string,
+  nextCursor: string,
+  options?: CursorPageOptions,
+): Promise<PaginatedResponse<T>> => {
+  const params: QueryParams = {
+    ...cleanParams(options?.params),
+    cursor: nextCursor,
+    ...(options?.limit ? { limit: options.limit } : {}),
+  };
+  const response = await api.get(endpoint, { params, signal: options?.signal });
+  return normalizePaginatedResponse<T>(response.data, options);
+};
+
+export const isRequestAborted = (error: unknown): boolean => {
+  if (axios.isCancel(error)) return true;
+  if (error instanceof DOMException && error.name === "AbortError") return true;
+  if (typeof error === "object" && error !== null) {
+    const maybe = error as { name?: string; code?: string };
+    return maybe.name === "CanceledError" || maybe.code === "ERR_CANCELED";
+  }
+  return false;
+};
+
+export const fetchAllPagesCursor = async <T>(
+  endpoint: string,
+  options?: FetchAllPagesCursorOptionsWithCallback<T>,
+): Promise<{
+  items: T[];
+  pagesFetched: number;
+  lastPage: PaginatedResponse<T>;
+}> => {
+  const safeMaxPages = toPositiveNumberOr(options?.maxPages, 50);
+  let current = await getFirstPage<T>(endpoint, options);
+  const items: T[] = [...current.data];
+  let pagesFetched = 1;
+
+  if (options?.onPage) {
+    await options.onPage(current, {
+      pageNumber: pagesFetched,
+      accumulated: items.length,
+    });
+  }
+
+  while (current.nextCursor && pagesFetched < safeMaxPages) {
+    current = await getNextPage<T>(endpoint, current.nextCursor, options);
+    items.push(...current.data);
+    pagesFetched++;
+
+    if (options?.onPage) {
+      await options.onPage(current, {
+        pageNumber: pagesFetched,
+        accumulated: items.length,
+      });
+    }
+  }
+
+  return {
+    items,
+    pagesFetched,
+    lastPage: current,
+  };
+};
+
+const getCursorPageByNumber = async <T>(
+  endpoint: string,
+  page = 1,
+  options?: CursorPageOptions,
+): Promise<PaginatedResponse<T>> => {
+  const targetPage = Math.max(1, page || 1);
+  let current = await getFirstPage<T>(endpoint, options);
+
+  for (let currentPage = 2; currentPage <= targetPage; currentPage++) {
+    if (!current.nextCursor) break;
+    current = await getNextPage<T>(endpoint, current.nextCursor, options);
+  }
+
+  return {
+    ...current,
+    page: targetPage,
+  };
+};
+
 // ============================================================
 // Storage keys — single source of truth used by AuthContext too
 // ============================================================
@@ -153,7 +347,7 @@ export const getUsers = (params?: {
   role?: string;
   sede?: string;
   active?: boolean;
-}) => api.get<UserProfile[]>("/users", { params });
+}, options?: { signal?: AbortSignal }) => api.get<UserProfile[]>("/users", { params, signal: options?.signal });
 
 export const getUser = (uid: string) => api.get<UserProfile>(`/users/${uid}`);
 
@@ -183,7 +377,14 @@ export const resetPassword = (uid: string) =>
 // VEHICLES
 // ============================================================
 export const getVehicles = (filters?: VehicleFilters) =>
-  api.get<PaginatedResponse<Vehicle>>("/vehicles", { params: filters });
+  (async (): Promise<ApiResult<PaginatedResponse<Vehicle>>> => {
+    const { page = 1, limit, ...rest } = filters ?? {};
+    const data = await getCursorPageByNumber<Vehicle>("/vehicles", page, {
+      params: rest,
+      limit,
+    });
+    return { data };
+  })();
 
 export const getVehicle = (id: string) => api.get<Vehicle>(`/vehicles/${id}`);
 
@@ -345,7 +546,27 @@ export const getAppointments = (params?: {
   vehicleId?: string;
   date?: string;
   advisorUid?: string;
-}) => api.get<Appointment[]>("/appointments", { params });
+  limit?: number;
+  cursor?: string;
+}, options?: { signal?: AbortSignal }) =>
+  (async (): Promise<ApiResult<PaginatedResponse<Appointment>>> => {
+    const limit = params?.limit;
+    const { cursor, ...rest } = params ?? {};
+    const data = cursor
+      ? await getNextPage<Appointment>("/appointments", cursor, {
+          params: rest,
+          limit,
+          legacyArrayFallback: true,
+          signal: options?.signal,
+        })
+      : await getFirstPage<Appointment>("/appointments", {
+          params: rest,
+          limit,
+          legacyArrayFallback: true,
+          signal: options?.signal,
+        });
+    return { data };
+  })();
 
 export const createAppointment = (data: {
   vehicleId: string;
@@ -498,11 +719,21 @@ export const getVehiclesCallCenter = (
     status?: string;
     dateFrom?: string;
     dateTo?: string;
-  }
+  },
+  options?: { signal?: AbortSignal },
 ) =>
-  api.get<PaginatedResponse<CallCenterVehicleRaw>>("/vehicles/call-center", {
-    params: { page, limit, ...filters },
-  });
+  (async (): Promise<ApiResult<PaginatedResponse<CallCenterVehicleRaw>>> => {
+    const data = await getCursorPageByNumber<CallCenterVehicleRaw>(
+      "/vehicles/call-center",
+      page,
+      {
+        params: filters,
+        limit,
+        signal: options?.signal,
+      },
+    );
+    return { data };
+  })();
 
 // ============================================================
 // CATALOGS
@@ -530,7 +761,8 @@ export const updateConcessionaire = (id: string, data: Partial<CatalogItem>) =>
 export const deleteConcessionaire = (id: string) =>
   api.delete(`/catalogs/concessionaires/${id}`);
 
-export const getSedes = () => api.get<CatalogItem[]>("/catalogs/sedes");
+export const getSedes = (options?: { signal?: AbortSignal }) =>
+  api.get<CatalogItem[]>("/catalogs/sedes", { signal: options?.signal });
 export const createSede = (data: Partial<CatalogItem>) =>
   api.post("/catalogs/sedes", data);
 export const updateSede = (id: string, data: Partial<CatalogItem>) =>

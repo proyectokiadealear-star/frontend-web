@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   getAppointments,
-  getVehicles,
+  fetchAllPagesCursor,
   getSedes,
   createAppointment,
   updateAppointment,
   getUsers,
+  isRequestAborted,
 } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -100,6 +101,8 @@ export default function AgendamientoPage() {
     user?.role === RoleEnum.JEFE_TALLER || user?.role === RoleEnum.SOPORTE || user?.role === RoleEnum.SUPERVISOR;
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [readyVehicles, setReadyVehicles] = useState<Vehicle[]>([]);
+  const [vehiclesPagesFetched, setVehiclesPagesFetched] = useState(0);
+  const [vehiclesLoadedCount, setVehiclesLoadedCount] = useState(0);
   const [advisors, setAdvisors] = useState<UserProfile[]>([]);
   const [sedes, setSedes] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -131,50 +134,69 @@ export default function AgendamientoPage() {
     assignedAdvisorId: "",
     assignedAdvisorName: "",
   });
+  const fetchControllerRef = useRef<AbortController | null>(null);
 
-  /** Fetch ALL vehicles for the given statuses using exhaustive pagination */
-  const fetchAllVehicles = useCallback(async (statuses: string): Promise<Vehicle[]> => {
-    const PAGE_SIZE = 200;
-    let page = 1;
-    let all: Vehicle[] = [];
-    let hasMore = true;
-    while (hasMore) {
-      const res = await getVehicles({ status: statuses, limit: PAGE_SIZE, page });
-      const batch = res.data.data || [];
-      all = [...all, ...batch];
-      hasMore = all.length < (res.data.total ?? 0);
-      page++;
-      // Safety: avoid infinite loop
-      if (page > 50) break;
-    }
-    return all;
+  /** Fetch ALL vehicles for the given statuses using cursor pagination */
+  const fetchAllVehicles = useCallback(async (statuses: string, signal?: AbortSignal): Promise<Vehicle[]> => {
+    const { items } = await fetchAllPagesCursor<Vehicle>("/vehicles", {
+      params: { status: statuses },
+      limit: 200,
+      maxPages: 50,
+      signal,
+      onPage: async (pageData, meta) => {
+        setVehiclesPagesFetched(meta.pageNumber);
+        setVehiclesLoadedCount(meta.accumulated);
+        setReadyVehicles((prev) =>
+          meta.pageNumber === 1 ? [...pageData.data] : [...prev, ...pageData.data],
+        );
+      },
+    });
+    return items;
   }, []);
 
   const fetchData = useCallback(async () => {
+    fetchControllerRef.current?.abort();
+    const controller = new AbortController();
+    fetchControllerRef.current = controller;
+
     setLoading(true);
+    setVehiclesPagesFetched(0);
+    setVehiclesLoadedCount(0);
+    setReadyVehicles([]);
     try {
       const [apptRes, readyVehiclesAll, advisorRes, liderRes, sedeRes] = await Promise.all([
-        getAppointments(),
-        fetchAllVehicles(`${VehicleStatus.LISTO_PARA_ENTREGA},${VehicleStatus.AGENDADO}`),
-        getUsers({ role: RoleEnum.ASESOR }),
-        getUsers({ role: RoleEnum.LIDER_TECNICO }),
-        getSedes(),
+        getAppointments(undefined, { signal: controller.signal }),
+        fetchAllVehicles(`${VehicleStatus.LISTO_PARA_ENTREGA},${VehicleStatus.AGENDADO}`, controller.signal),
+        getUsers({ role: RoleEnum.ASESOR }, { signal: controller.signal }),
+        getUsers({ role: RoleEnum.LIDER_TECNICO }, { signal: controller.signal }),
+        getSedes({ signal: controller.signal }),
       ]);
-      setAppointments(apptRes.data);
+
+      if (controller.signal.aborted) return;
+
+      setAppointments(apptRes.data.data ?? []);
       setReadyVehicles(readyVehiclesAll);
       // Merge asesores + líderes técnicos, sorted by name
       const merged = [...(advisorRes.data ?? []), ...(liderRes.data ?? [])];
       merged.sort((a, b) => a.displayName.localeCompare(b.displayName));
       setAdvisors(merged);
       setSedes(sedeRes.data || []);
-    } catch {
+    } catch (error) {
+      if (isRequestAborted(error)) return;
       toast.error("Error al cargar agendamientos");
     } finally {
-      setLoading(false);
+      if (fetchControllerRef.current === controller) {
+        setLoading(false);
+      }
     }
   }, [fetchAllVehicles]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    fetchData();
+    return () => {
+      fetchControllerRef.current?.abort();
+    };
+  }, [fetchData]);
 
   const openCreate = (vehicle: Vehicle) => {
     setSelectedVehicle(vehicle);
@@ -404,6 +426,12 @@ export default function AgendamientoPage() {
           </button>
         ))}
       </div>
+
+      {loading && vehiclesPagesFetched > 0 && (
+        <p className="text-xs text-gray-500 -mt-2 mb-4">
+          Cargando vehiculos pendientes: {vehiclesLoadedCount} ({vehiclesPagesFetched} pagina{vehiclesPagesFetched !== 1 ? "s" : ""})
+        </p>
+      )}
 
       {loading ? (
         <SkeletonTable rows={5} />

@@ -22,7 +22,7 @@ import {
   RefreshCw,
   CalendarDays,
 } from "lucide-react";
-import { getVehiclesCallCenter, getSalePotential } from "@/lib/api";
+import { fetchAllPagesCursor, getSalePotential, isRequestAborted } from "@/lib/api";
 import { AccessoryKey, VehicleStatusLabel, VehicleStatusColor } from "@/lib/constants";
 import type { VehicleStatusType } from "@/lib/constants";
 import type { SalePotential } from "@/types";
@@ -163,6 +163,8 @@ export function DashboardCallCenter() {
   const [rawVehicles, setRawVehicles] = useState<CallCenterVehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pagesFetched, setPagesFetched] = useState(0);
+  const [loadedCount, setLoadedCount] = useState(0);
 
   const [search, setSearch] = useState("");
   const [filterPrioridad, setFilterPrioridad] = useState<Prioridad | "">("");
@@ -185,8 +187,13 @@ export function DashboardCallCenter() {
   });
 
   const [page, setPage] = useState(1);
+  const fetchControllerRef = React.useRef<AbortController | null>(null);
 
   const fetchCallCenter = useCallback(async () => {
+    fetchControllerRef.current?.abort();
+    const controller = new AbortController();
+    fetchControllerRef.current = controller;
+
     if (periodFrom > periodTo) {
       setError('Rango de fechas inválido.');
       setLoading(false);
@@ -195,44 +202,53 @@ export function DashboardCallCenter() {
 
     setLoading(true);
     setError(null);
+    setPagesFetched(0);
+    setLoadedCount(0);
+    setRawVehicles([]);
 
     try {
-      const first = await getVehiclesCallCenter(1, 100, {
+      const filters = {
         sede: filterSede || undefined,
         model: filterModelo || undefined,
         status: filterStatus || undefined,
         dateFrom: periodFrom || undefined,
         dateTo: periodTo || undefined,
-      });
-      const { data: firstData, totalPages } = first.data;
-      let allVehicles = [...firstData];
+      };
 
-      if (totalPages > 1) {
-        const rest = await Promise.all(
-          Array.from({ length: totalPages - 1 }, (_, i) =>
-            getVehiclesCallCenter(i + 2, 100, {
-              sede: filterSede || undefined,
-              model: filterModelo || undefined,
-              status: filterStatus || undefined,
-              dateFrom: periodFrom || undefined,
-              dateTo: periodTo || undefined,
-            }).then((r) => r.data.data)
-          )
-        );
-        allVehicles = allVehicles.concat(rest.flat());
-      }
+      const { items: allVehicles } = await fetchAllPagesCursor<CallCenterVehicle>(
+        "/vehicles/call-center",
+        {
+          params: filters,
+          limit: 100,
+          maxPages: 100,
+          signal: controller.signal,
+          onPage: async (pageData, meta) => {
+            setPagesFetched(meta.pageNumber);
+            setLoadedCount(meta.accumulated);
+            setRawVehicles((prev) =>
+              meta.pageNumber === 1 ? [...pageData.data] : [...prev, ...pageData.data],
+            );
+          },
+        },
+      );
 
       setRawVehicles(allVehicles);
-    } catch {
+    } catch (error) {
+      if (isRequestAborted(error)) return;
       setError("No se pudo cargar la lista de vehículos.");
     } finally {
-      setLoading(false);
+      if (fetchControllerRef.current === controller) {
+        setLoading(false);
+      }
     }
   }, [filterSede, filterModelo, filterStatus, periodFrom, periodTo]);
 
   // ── Data fetch (all pages accumulated) ─────────────────────
   useEffect(() => {
     fetchCallCenter();
+    return () => {
+      fetchControllerRef.current?.abort();
+    };
   }, [fetchCallCenter]);
 
   const hasPeriodError = useMemo(() => periodFrom > periodTo, [periodFrom, periodTo]);
@@ -522,6 +538,11 @@ export function DashboardCallCenter() {
           <span>
             Cobertura documental: {documentationCoverage.pct}% ({documentationCoverage.found}/{kpis.total || 0})
           </span>
+          {loading && pagesFetched > 0 && (
+            <span className="text-slate-400">
+              Cargando {loadedCount} registros ({pagesFetched} página{pagesFetched !== 1 ? "s" : ""})
+            </span>
+          )}
           {documentationCoverage.missing > 0 && (
             <span className="text-amber-300">{documentationCoverage.missing} sin documentación enlazada</span>
           )}

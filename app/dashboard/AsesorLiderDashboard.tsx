@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { getAppointments } from "@/lib/api";
+import { getAppointments, isRequestAborted } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import type { Appointment } from "@/types";
 import { CalendarDays, Clock, User, MapPin, Car } from "lucide-react";
@@ -31,21 +31,32 @@ export function AsesorLiderDashboard() {
   const { user } = useAuth();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
+  const fetchControllerRef = useRef<AbortController | null>(null);
 
   const fetchData = useCallback(async () => {
+    fetchControllerRef.current?.abort();
+    const controller = new AbortController();
+    fetchControllerRef.current = controller;
     setLoading(true);
     try {
-      const res = await getAppointments();
-      setAppointments(res.data);
-    } catch {
+      const res = await getAppointments(undefined, { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      setAppointments(res.data.data ?? []);
+    } catch (error) {
+      if (isRequestAborted(error)) return;
       toast.error("Error al cargar agendamientos");
     } finally {
-      setLoading(false);
+      if (fetchControllerRef.current === controller) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     fetchData();
+    return () => {
+      fetchControllerRef.current?.abort();
+    };
   }, [fetchData]);
 
   const today = todayStr();
